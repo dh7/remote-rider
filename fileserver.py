@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
 app = FastAPI()
@@ -11,9 +11,13 @@ STYLE = """
   body { font-family: monospace; background: #111; color: #eee; padding: 1rem; }
   a    { color: #7af; text-decoration: none; display: block; padding: 2px 0; }
   a:hover { color: #fff; }
+  .crumbs { white-space: nowrap; overflow-x: auto; overflow-y: hidden; }
+  .crumbs a { display: inline; padding: 0; }
   .dir  { color: #fa0; }
+  .dir-hidden { color: #666; }
   .img  { color: #af7; }
-  .file { color: #aaa; }
+  .file { color: #fff; }
+  .file-hidden { color: #666; }
   textarea { width:100%; height:80vh; background:#1a1a1a; color:#eee;
              border:1px solid #444; font-family:monospace; padding:0.5rem; }
   button { background:#4a4a8a; color:#fff; border:none; padding:0.5rem 1rem;
@@ -29,14 +33,14 @@ def breadcrumbs(path: str) -> str:
     for part in parts:
         accumulated = str(Path(accumulated) / part)
         crumbs += f'/ <a href="/files?path={accumulated}">{part}</a> '
-    return f"<div>{crumbs}</div><hr>"
+    return f"<div class=\"crumbs\">{crumbs}</div><hr>"
 
 
 @app.get("/files", response_class=HTMLResponse)
-def browse(path: str = "") -> HTMLResponse | str:
+def browse(path: str = "") -> str:
     target = ROOT / path
     if not target.exists():
-        return HTMLResponse("Not found", status_code=404)
+        raise HTTPException(status_code=404, detail="Not found")
 
     entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name))
     items = breadcrumbs(path)
@@ -52,11 +56,13 @@ def browse(path: str = "") -> HTMLResponse | str:
             continue
 
         if entry.is_dir():
-            items += f'<a class="dir" href="/files?path={rel}">[dir] {entry.name}</a>'
+            dir_class = "dir-hidden" if entry.name.startswith(".") else "dir"
+            items += f'<a class="{dir_class}" href="/files?path={rel}">[dir] {entry.name}</a>'
         elif entry.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
             items += f'<a class="img" href="/img?path={rel}" target="_blank">[img] {entry.name}</a>'
         else:
-            items += f'<a class="file" href="/edit?path={rel}">{entry.name}</a>'
+            file_class = "file-hidden" if entry.name.startswith(".") else "file"
+            items += f'<a class="{file_class}" href="/edit?path={rel}">{entry.name}</a>'
 
     return f"<html><head>{STYLE}</head><body>{items}</body></html>"
 

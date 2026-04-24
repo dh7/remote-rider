@@ -36,63 +36,122 @@
     <div id="frames"></div>
   </div>
   <script>
-    async function init() {
-      const servers = await fetch('/servers').then(r => r.json());
+    const state = {
+      servers: [],
+      activeServer: null,
+      activeFrameByServer: {},
+    };
+
+    function slug(value) {
+      return String(value).replace(/[^a-zA-Z0-9_-]/g, '-');
+    }
+
+    function frameIdFor(server, panel) {
+      return `frame-${slug(server.name)}-${slug(panel.label)}-${panel.port}`;
+    }
+
+    function resolveHost(host) {
+      if (!host || host === '127.0.0.1' || host === 'localhost' || host === '::1') {
+        return window.location.hostname;
+      }
+      return host;
+    }
+
+    function ensureFrame(server, panel) {
+      const framesEl = document.getElementById('frames');
+      const id = frameIdFor(server, panel);
+      const existing = document.getElementById(id);
+      if (existing) return existing;
+
+      const path = panel.path || '/';
+      const protocol = panel.protocol || window.location.protocol.replace(':', '');
+      const host = resolveHost(server.ip);
+
+      const iframe = document.createElement('iframe');
+      iframe.id = id;
+      iframe.src = `${protocol}://${host}:${panel.port}${path}`;
+      framesEl.appendChild(iframe);
+      return iframe;
+    }
+
+    function activateFrame(frameId) {
+      document.querySelectorAll('#frames iframe').forEach(f => f.classList.remove('active'));
+      const frame = document.getElementById(frameId);
+      if (frame) frame.classList.add('active');
+    }
+
+    function selectServer(server) {
+      state.activeServer = server.name;
+      renderSidebar();
+      renderTabs(server);
+    }
+
+    function renderSidebar() {
       const list = document.getElementById('server-list');
-      servers.forEach((server, i) => {
+      list.innerHTML = '';
+      state.servers.forEach(server => {
         const heading = document.createElement('h3');
         heading.textContent = server.name;
         list.appendChild(heading);
+
         const btn = document.createElement('button');
-        btn.className = 'server-btn' + (i === 0 ? ' active' : '');
+        btn.className = 'server-btn' + (server.name === state.activeServer ? ' active' : '');
         btn.textContent = server.name;
-        btn.onclick = () => {
-          document.querySelectorAll('.server-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          loadServer(server);
-        };
+        btn.onclick = () => selectServer(server);
         list.appendChild(btn);
-        if (i === 0) loadServer(server);
       });
     }
 
-    function loadServer(server) {
+    function renderTabs(server) {
       const tabs = document.getElementById('tabs');
-      const framesEl = document.getElementById('frames');
-      const pageHost = window.location.hostname;
-      const pageProtocol = window.location.protocol;
+      tabs.innerHTML = '';
 
-      function resolveHost(host) {
-        if (!host || host === '127.0.0.1' || host === 'localhost' || host === '::1') {
-          return pageHost;
-        }
-        return host;
+      if (!server.panels || server.panels.length === 0) {
+        activateFrame('');
+        return;
       }
 
-      tabs.innerHTML = '';
-      framesEl.innerHTML = '';
-      server.panels.forEach((panel, i) => {
-        const id = `frame-${server.name}-${panel.port}`;
-        const path = panel.path || '/';
-        const protocol = panel.protocol || pageProtocol.replace(':', '');
-        const iframe = document.createElement('iframe');
-        iframe.id = id;
-        const host = resolveHost(server.ip);
-        iframe.src = `${protocol}://${host}:${panel.port}${path}`;
-        if (i === 0) iframe.classList.add('active');
-        framesEl.appendChild(iframe);
+      const savedFrameId = state.activeFrameByServer[server.name];
+      let selectedFrameId = null;
 
+      server.panels.forEach((panel, i) => {
+        const frame = ensureFrame(server, panel);
+        const frameId = frame.id;
         const btn = document.createElement('button');
-        btn.className = 'tab-btn' + (i === 0 ? ' active' : '');
+        btn.className = 'tab-btn';
         btn.textContent = panel.label;
         btn.onclick = () => {
           document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-          document.querySelectorAll('#frames iframe').forEach(f => f.classList.remove('active'));
           btn.classList.add('active');
-          document.getElementById(id).classList.add('active');
+          state.activeFrameByServer[server.name] = frameId;
+          activateFrame(frameId);
         };
         tabs.appendChild(btn);
+
+        if ((savedFrameId && savedFrameId === frameId) || (!savedFrameId && i === 0)) {
+          selectedFrameId = frameId;
+          btn.classList.add('active');
+        }
       });
+
+      if (!selectedFrameId) {
+        selectedFrameId = frameIdFor(server, server.panels[0]);
+      }
+
+      state.activeFrameByServer[server.name] = selectedFrameId;
+      activateFrame(selectedFrameId);
+    }
+
+    async function init() {
+      state.servers = await fetch('/servers').then(r => r.json());
+      if (state.servers.length === 0) {
+        renderSidebar();
+        return;
+      }
+
+      const existing = state.servers.find(s => s.name === state.activeServer);
+      const target = existing || state.servers[0];
+      selectServer(target);
     }
 
     init();
