@@ -5,6 +5,50 @@ cd "$(dirname "$0")"
 VENV=".venv/bin"
 LOG_DIR="logs"
 mkdir -p "$LOG_DIR"
+PID_DIR="$LOG_DIR/pids"
+mkdir -p "$PID_DIR"
+
+stop_pidfile() {
+  local name="$1"
+  local file="$PID_DIR/$name.pid"
+  local pid=""
+  if [[ ! -f "$file" ]]; then
+    return
+  fi
+
+  pid="$(<"$file")"
+  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+      if kill -0 "$pid" 2>/dev/null; then
+        sleep 0.1
+      else
+        break
+      fi
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  fi
+  rm -f "$file"
+}
+
+stop_previous_hub() {
+  echo "Checking previous hub service..."
+  stop_pidfile hub
+
+  local hub_pids=""
+  hub_pids="$(pgrep -f "$VENV/uvicorn main:app" || true)"
+  if [[ -n "$hub_pids" ]]; then
+    while IFS= read -r pid; do
+      if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+      fi
+    done <<< "$hub_pids"
+  fi
+}
+
+stop_previous_hub
 
 if [[ ! -x "$VENV/uvicorn" ]]; then
   echo "Missing $VENV/uvicorn. Create venv and install deps first."
@@ -131,6 +175,7 @@ if [[ "$DISABLE_TERMINAL" == "0" ]]; then
   fi
 
   "$TTYD_BIN" -W "${TERM_URLARG_FLAG[@]}" -i "$BIND_HOST" -p "$TERM_PORT" "${TERM_CMD[@]}" > "$LOG_DIR/ttyd.log" 2>&1 &
+  echo "$!" > "$PID_DIR/ttyd.pid"
   echo "  ttyd    -> http://$PUBLIC_HOST:$TERM_PORT"
   if [[ "$TERM_BACKEND" == "tmux" ]]; then
     echo "  tmux    -> default session '1' (or set per URL: ?arg=<session>)"
@@ -141,15 +186,19 @@ else
 fi
 
 "$VENV/uvicorn" monitor:app --host "$BIND_HOST" --port "$MONITOR_PORT" > "$LOG_DIR/monitor.log" 2>&1 &
+echo "$!" > "$PID_DIR/monitor.pid"
 echo "  monitor -> http://$PUBLIC_HOST:$MONITOR_PORT"
 
 "$VENV/uvicorn" logs:app --host "$BIND_HOST" --port "$LOGS_PORT" > "$LOG_DIR/logs.log" 2>&1 &
+echo "$!" > "$PID_DIR/logs.pid"
 echo "  logs    -> http://$PUBLIC_HOST:$LOGS_PORT"
 
 "$VENV/uvicorn" fileserver:app --host "$BIND_HOST" --port "$FILES_PORT" > "$LOG_DIR/fileserver.log" 2>&1 &
+echo "$!" > "$PID_DIR/fileserver.pid"
 echo "  files   -> http://$PUBLIC_HOST:$FILES_PORT/files"
 
 "$VENV/uvicorn" main:app --host "$BIND_HOST" --port "$HUB_PORT" > "$LOG_DIR/hub.log" 2>&1 &
+echo "$!" > "$PID_DIR/hub.pid"
 echo "  hub     -> http://$PUBLIC_HOST:$HUB_PORT"
 
 sleep 1
