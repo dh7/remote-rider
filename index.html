@@ -5,45 +5,412 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-family: monospace; }
-    #sidebar { width: 160px; padding: 1rem; display: flex; flex-direction: column;
-               gap: 0.25rem; border-right: 1px solid #2a2a4a; overflow-y: auto; }
-    #sidebar h3 { font-size: 0.7rem; color: #666; text-transform: uppercase;
-                  letter-spacing: 0.1em; margin: 0.75rem 0 0.25rem; }
+
+    #sidebar {
+      width: 280px;
+      padding: 0.8rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      border-right: 1px solid #2a2a4a;
+      overflow-y: auto;
+      background: #0c0c16;
+    }
+
+    #sidebar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.2rem;
+    }
+
+    #sidebar-title {
+      font-size: 0.95rem;
+      font-weight: bold;
+      color: #88f;
+      letter-spacing: 0.03em;
+    }
+
+    #add-session-btn {
+      background: #29406c;
+      border: 1px solid #45629a;
+      color: #fff;
+      width: 1.8rem;
+      height: 1.8rem;
+      border-radius: 0.3rem;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1rem;
+    }
+
+    .session-row {
+      border: 1px solid #30344f;
+      border-radius: 0.4rem;
+      padding: 0.3rem;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.3rem;
+      background: #111327;
+    }
+
+    .session-row.dragging { opacity: 0.45; }
+    .session-row.drop-before { box-shadow: inset 0 3px 0 0 #6aa0ff; }
+    .session-row.drop-after { box-shadow: inset 0 -3px 0 0 #6aa0ff; }
+
+    .session-main {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-width: 0;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: #ddd;
+      text-align: left;
+      width: 100%;
+      padding: 0.2rem;
+      border-radius: 0.25rem;
+    }
+
+    .session-main:hover,
+    .session-main.active {
+      background: #1a1f3e;
+      color: #fff;
+    }
+
+    .session-dot {
+      width: 0.65rem;
+      height: 0.65rem;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      border: 1px solid #111;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+    }
+
+    .session-text {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      gap: 0.1rem;
+    }
+
+    .session-label {
+      font-size: 0.83rem;
+      color: #f0f0f0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-meta {
+      font-size: 0.68rem;
+      color: #888ca8;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.2rem;
+    }
+
+    .icon-btn {
+      background: #17192b;
+      border: 1px solid #3b4060;
+      color: #c4c8e5;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      font-size: 0.8rem;
+      line-height: 0.8rem;
+    }
+
+    .icon-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    .drag-handle {
+      cursor: grab;
+      font-size: 0.72rem;
+      letter-spacing: -1px;
+    }
+
     #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-    #tabs { display: flex; gap: 2px; padding: 0.4rem 0.5rem;
-            background: #111; border-bottom: 1px solid #2a2a4a; }
+    #tabs {
+      display: flex;
+      gap: 2px;
+      padding: 0.4rem 0.5rem;
+      background: #111;
+      border-bottom: 1px solid #2a2a4a;
+    }
     #frames { flex: 1; position: relative; }
-    #frames iframe { position: absolute; inset: 0; width: 100%; height: 100%;
-                     border: none; background: #000; display: none; }
+    #frames iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #000;
+      display: none;
+    }
     #frames iframe.active { display: block; }
-    .server-btn { background: none; border: 1px solid #333; color: #aaa;
-                  padding: 0.35rem 0.6rem; cursor: pointer; text-align: left;
-                  font-family: monospace; font-size: 0.85rem; width: 100%; }
-    .server-btn.active, .server-btn:hover { background: #1a1a3a; color: #eee; border-color: #555; }
-    .tab-btn { background: none; border: 1px solid #333; color: #aaa;
-               padding: 0.3rem 0.8rem; cursor: pointer; font-family: monospace; font-size: 0.8rem; }
+
+    .tab-btn {
+      background: none;
+      border: 1px solid #333;
+      color: #aaa;
+      padding: 0.3rem 0.8rem;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 0.8rem;
+    }
     .tab-btn.active { background: #2a2a5a; color: #fff; border-color: #66f; }
     .tab-btn:hover { background: #1a1a3a; }
+
+    #add-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(7, 8, 14, 0.72);
+      z-index: 20;
+      padding: 1rem;
+    }
+    #add-modal.open { display: flex; }
+    #add-card {
+      width: min(36rem, 100%);
+      background: #121628;
+      border: 1px solid #394160;
+      border-radius: 0.6rem;
+      padding: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+    }
+    #add-card h2 {
+      font-size: 0.95rem;
+      color: #d7defa;
+      font-weight: bold;
+    }
+    .form-row { display: flex; flex-direction: column; gap: 0.3rem; }
+    .form-row label { font-size: 0.74rem; color: #9aa4cc; }
+    .form-row select,
+    .form-row input {
+      background: #161c2f;
+      border: 1px solid #414d77;
+      color: #eff3ff;
+      padding: 0.45rem 0.52rem;
+      border-radius: 0.3rem;
+      font-family: monospace;
+    }
+    .inline-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.6rem;
+    }
+    .radio-row {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      font-size: 0.78rem;
+      color: #c5ccee;
+    }
+    #add-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.2rem;
+    }
+    .secondary-btn {
+      background: #1a2137;
+      border: 1px solid #4c5a86;
+      color: #dbe4ff;
+      padding: 0.45rem 0.8rem;
+      border-radius: 0.3rem;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 0.82rem;
+    }
+    .primary-btn {
+      background: #32518f;
+      border: 1px solid #5278c8;
+      color: #fff;
+      padding: 0.45rem 0.8rem;
+      border-radius: 0.3rem;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 0.82rem;
+    }
+    .muted-note { font-size: 0.72rem; color: #8f97b9; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <div id="sidebar">
-    <div style="font-size:1rem;font-weight:bold;color:#88f;margin-bottom:0.5rem">Terminal</div>
+    <div id="sidebar-header">
+      <div id="sidebar-title">Sessions</div>
+      <button id="add-session-btn" title="Add session">+</button>
+    </div>
     <div id="server-list"></div>
   </div>
   <div id="main">
     <div id="tabs"></div>
     <div id="frames"></div>
   </div>
+
+  <div id="add-modal">
+    <div id="add-card">
+      <h2>Add Session</h2>
+
+      <div class="form-row">
+        <label for="add-server-select">Server Profile</label>
+        <select id="add-server-select"></select>
+      </div>
+
+      <div id="add-new-server-wrap" class="inline-row hidden">
+        <div class="form-row">
+          <label for="add-server-ip">New Server IP/Host</label>
+          <input id="add-server-ip" type="text" placeholder="100.x.x.x or hostname">
+        </div>
+        <div class="form-row">
+          <label for="add-base-select">Clone Panels From</label>
+          <select id="add-base-select"></select>
+        </div>
+      </div>
+
+      <div id="add-known-server-wrap" class="form-row hidden">
+        <label for="add-known-server">Homelab server (Tailscale)</label>
+        <select id="add-known-server"></select>
+      </div>
+
+      <div class="form-row">
+        <label for="add-label">Session Label (left menu)</label>
+        <input id="add-label" type="text" placeholder="netochka">
+      </div>
+
+      <div class="form-row">
+        <label>Terminal Session</label>
+        <div class="radio-row">
+          <label><input type="radio" name="tmux-source" value="existing" checked> Existing</label>
+          <label><input type="radio" name="tmux-source" value="new"> New</label>
+        </div>
+      </div>
+
+      <div id="add-existing-wrap" class="form-row">
+        <label for="add-existing-session">Existing tmux session</label>
+        <select id="add-existing-session"></select>
+      </div>
+
+      <div id="add-new-session-wrap" class="form-row hidden">
+        <label for="add-new-session">New tmux session name</label>
+        <input id="add-new-session" type="text" placeholder="job1">
+      </div>
+
+      <div id="add-note" class="muted-note"></div>
+
+      <div id="add-actions">
+        <button id="add-cancel" class="secondary-btn" type="button">Cancel</button>
+        <button id="add-submit" class="primary-btn" type="button">Create Session</button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    const STORAGE_KEY = 'webterm-ui-state-v2';
+
     const state = {
       servers: [],
       activeServer: null,
-      activeFrameByServer: {},
+      activeTabByServer: {},
+      tmuxSessions: [],
     };
+
+    const HOMELAB_SERVERS = [
+      { name: 'netochka', ip: '100.119.43.10', aliases: ['netochka-01', 'netoska'] },
+      { name: 'gx10', ip: '100.118.187.64', aliases: ['gx10-dab6', 'spark'] },
+      { name: 'image-store', ip: '100.118.221.26', aliases: [] },
+      { name: 'hermes', ip: '100.69.53.14', aliases: [] },
+      { name: 'tailscale', ip: '100.89.14.119', aliases: [] },
+      { name: 'dh7-syno-01', ip: '100.107.84.55', aliases: ['synology'] },
+    ];
+
+    const addModal = document.getElementById('add-modal');
+    const addServerSelect = document.getElementById('add-server-select');
+    const addNewServerWrap = document.getElementById('add-new-server-wrap');
+    const addKnownServerWrap = document.getElementById('add-known-server-wrap');
+    const addKnownServer = document.getElementById('add-known-server');
+    const addServerIp = document.getElementById('add-server-ip');
+    const addBaseSelect = document.getElementById('add-base-select');
+    const addLabel = document.getElementById('add-label');
+    const addExistingWrap = document.getElementById('add-existing-wrap');
+    const addExistingSession = document.getElementById('add-existing-session');
+    const addNewSessionWrap = document.getElementById('add-new-session-wrap');
+    const addNewSession = document.getElementById('add-new-session');
+    const addNote = document.getElementById('add-note');
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          if (typeof parsed.activeServer === 'string') state.activeServer = parsed.activeServer;
+          if (parsed.activeTabByServer && typeof parsed.activeTabByServer === 'object') {
+            state.activeTabByServer = parsed.activeTabByServer;
+          }
+        }
+      } catch (_) {}
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            activeServer: state.activeServer,
+            activeTabByServer: state.activeTabByServer,
+          }),
+        );
+      } catch (_) {}
+    }
+
+    async function postJson(url, payload) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      return res.json();
+    }
 
     function slug(value) {
       return String(value).replace(/[^a-zA-Z0-9_-]/g, '-');
+    }
+
+    function makeUniqueName(base) {
+      const cleaned = String(base || 'session')
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'session';
+      const names = new Set(state.servers.map(s => s.name));
+      if (!names.has(cleaned)) return cleaned;
+      let i = 2;
+      while (names.has(`${cleaned}-${i}`)) i += 1;
+      return `${cleaned}-${i}`;
+    }
+
+    function displayName(server) {
+      return server.display || server.name;
     }
 
     function frameIdFor(server, panel) {
@@ -55,6 +422,266 @@
         return window.location.hostname;
       }
       return host;
+    }
+
+    function isLocalHost(host) {
+      return !host || host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    }
+
+    function homelabIpForName(text) {
+      const key = String(text || '').trim().toLowerCase();
+      if (!key) return '';
+      const keyTokens = key.split(/[^a-z0-9._-]+/).filter(Boolean);
+
+      for (const server of HOMELAB_SERVERS) {
+        if (server.ip === key) return server.ip;
+
+        const names = [server.name, ...(server.aliases || [])].map((x) => x.toLowerCase());
+        if (names.includes(key)) return server.ip;
+        if (names.some((n) => key.includes(n))) return server.ip;
+        if (keyTokens.some((tok) => names.includes(tok))) return server.ip;
+      }
+
+      return '';
+    }
+
+    function profileNetworkHost(server) {
+      const mapped = homelabIpForName(displayName(server)) || homelabIpForName(server.name);
+      if (isLocalHost(server.ip) && mapped) return mapped;
+      return server.ip || mapped || '';
+    }
+
+    function colorForServer(server) {
+      const key = `${server.ip || ''}`;
+      let hash = 0;
+      for (let i = 0; i < key.length; i += 1) hash = ((hash << 5) - hash) + key.charCodeAt(i);
+      const hue = Math.abs(hash) % 360;
+      return `hsl(${hue} 65% 55%)`;
+    }
+
+    function terminalSessionForServer(server) {
+      const terminal = (server.panels || []).find(p => p.label === 'Terminal');
+      if (!terminal || !terminal.path) return '1';
+      const qIdx = terminal.path.indexOf('?');
+      if (qIdx < 0) return '1';
+      const params = new URLSearchParams(terminal.path.slice(qIdx + 1));
+      return params.get('arg') || '1';
+    }
+
+    function sanitizeSessionName(raw) {
+      const cleaned = String(raw || '').trim().replace(/[^A-Za-z0-9._:-]+/g, '-');
+      return cleaned || '1';
+    }
+
+    async function refreshTmuxSessions() {
+      try {
+        const payload = await fetch('/tmux/sessions').then(r => r.json());
+        if (Array.isArray(payload.sessions)) {
+          state.tmuxSessions = payload.sessions;
+          addNote.textContent = payload.available
+            ? `tmux sessions on ${payload.host || 'this host'}: ${state.tmuxSessions.join(', ') || 'none'}`
+            : 'tmux is not available on this host';
+        }
+      } catch (_) {
+        state.tmuxSessions = [];
+        addNote.textContent = 'Could not load tmux sessions from server.';
+      }
+    }
+
+    function fillTmuxSessionOptions(defaultSession) {
+      addExistingSession.innerHTML = '';
+      const sessions = state.tmuxSessions.slice();
+      sessions.forEach((name) => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        addExistingSession.appendChild(opt);
+      });
+
+      if (!sessions.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '(no existing tmux sessions found)';
+        addExistingSession.appendChild(opt);
+      }
+
+      addExistingSession.value = sessions.includes(defaultSession) ? defaultSession : (sessions[0] || '');
+    }
+
+    function updateSessionSourceVisibility() {
+      const source = document.querySelector('input[name="tmux-source"]:checked')?.value || 'existing';
+      if (source === 'existing' && !state.tmuxSessions.length) {
+        const preferredNew = document.querySelector('input[name="tmux-source"][value="new"]');
+        preferredNew.checked = true;
+      }
+      const effectiveSource = document.querySelector('input[name="tmux-source"]:checked')?.value || 'new';
+      const usingExisting = effectiveSource === 'existing' && state.tmuxSessions.length > 0;
+      addExistingWrap.classList.toggle('hidden', !usingExisting);
+      addNewSessionWrap.classList.toggle('hidden', usingExisting);
+    }
+
+    function updateServerChoiceVisibility() {
+      const isNewServer = addServerSelect.value === '__new__';
+      addNewServerWrap.classList.toggle('hidden', !isNewServer);
+      addKnownServerWrap.classList.toggle('hidden', !isNewServer);
+    }
+
+    function populateKnownServerOptions(defaultIp) {
+      addKnownServer.innerHTML = '';
+
+      const manual = document.createElement('option');
+      manual.value = '';
+      manual.textContent = 'Manual IP/host';
+      addKnownServer.appendChild(manual);
+
+      HOMELAB_SERVERS.forEach((server) => {
+        const opt = document.createElement('option');
+        opt.value = server.ip;
+        opt.textContent = `${server.name} (${server.ip})`;
+        addKnownServer.appendChild(opt);
+      });
+
+      const match = HOMELAB_SERVERS.find((s) => s.ip === defaultIp);
+      addKnownServer.value = match ? match.ip : '';
+    }
+
+    function populateServerChoices() {
+      const current = state.servers.find(s => s.name === state.activeServer) || state.servers[0];
+
+      addServerSelect.innerHTML = '';
+      addBaseSelect.innerHTML = '';
+
+      state.servers.forEach((server) => {
+        const display = `${displayName(server)} (${profileNetworkHost(server) || server.ip || 'unknown-host'})`;
+
+        const opt = document.createElement('option');
+        opt.value = server.name;
+        opt.textContent = display;
+        addServerSelect.appendChild(opt);
+
+        const baseOpt = document.createElement('option');
+        baseOpt.value = server.name;
+        baseOpt.textContent = display;
+        addBaseSelect.appendChild(baseOpt);
+      });
+
+      const newOpt = document.createElement('option');
+      newOpt.value = '__new__';
+      newOpt.textContent = '+ New server profile';
+      addServerSelect.appendChild(newOpt);
+
+      if (current) {
+        addServerSelect.value = current.name;
+        addBaseSelect.value = current.name;
+        addServerIp.value = profileNetworkHost(current) || current.ip || '';
+        addLabel.value = displayName(current);
+        populateKnownServerOptions(addServerIp.value);
+        const defaultSession = terminalSessionForServer(current);
+        fillTmuxSessionOptions(defaultSession);
+        addNewSession.value = defaultSession === '1' ? 'job1' : `${defaultSession}-copy`;
+
+        const preferredExisting = document.querySelector('input[name="tmux-source"][value="existing"]');
+        const preferredNew = document.querySelector('input[name="tmux-source"][value="new"]');
+        if (state.tmuxSessions.length) {
+          preferredExisting.checked = true;
+        } else {
+          preferredNew.checked = true;
+        }
+      }
+
+      updateServerChoiceVisibility();
+      updateSessionSourceVisibility();
+    }
+
+    async function openAddModal() {
+      if (!state.servers.length) return;
+      await refreshTmuxSessions();
+      populateServerChoices();
+      addModal.classList.add('open');
+    }
+
+    function closeAddModal() {
+      addModal.classList.remove('open');
+    }
+
+    async function submitAddModal() {
+      const selected = addServerSelect.value;
+      const isNewServer = selected === '__new__';
+
+      let ip = '';
+      let base = '';
+      let label = addLabel.value.trim();
+      let nameBase = '';
+
+      if (isNewServer) {
+        ip = addServerIp.value.trim();
+        if (!ip) {
+          alert('Please set the server IP/host.');
+          return;
+        }
+        base = addBaseSelect.value || (state.servers[0] && state.servers[0].name) || '';
+        if (!base) {
+          alert('Please select a base profile.');
+          return;
+        }
+        label = label || ip;
+        nameBase = label || ip;
+      } else {
+        const src = state.servers.find(s => s.name === selected);
+        if (!src) return;
+        ip = profileNetworkHost(src) || src.ip;
+        base = src.name;
+        label = label || displayName(src);
+        nameBase = `${src.name}-${label}`;
+      }
+
+      const source = document.querySelector('input[name="tmux-source"]:checked')?.value || 'existing';
+      const session = sanitizeSessionName(
+        source === 'existing' ? addExistingSession.value : addNewSession.value,
+      );
+
+      const name = makeUniqueName(`${nameBase}-${session}`);
+
+      try {
+        await postJson('/remote', {
+          action: 'add',
+          name,
+          display: label,
+          ip,
+          base,
+          position: 'top',
+          terminal_session: session,
+        });
+        closeAddModal();
+        await reloadServers(name);
+      } catch (err) {
+        alert(`Create failed: ${err.message}`);
+      }
+    }
+
+    let dragServerName = null;
+
+    function clearDropMarkers() {
+      document.querySelectorAll('.session-row.drop-before, .session-row.drop-after').forEach((el) => {
+        el.classList.remove('drop-before', 'drop-after');
+      });
+      document.querySelectorAll('.session-row.dragging').forEach((el) => {
+        el.classList.remove('dragging');
+      });
+    }
+
+    function moveServerTo(dragName, targetName, after) {
+      if (!dragName || !targetName || dragName === targetName) return;
+
+      const fromIdx = state.servers.findIndex(s => s.name === dragName);
+      const targetIdx = state.servers.findIndex(s => s.name === targetName);
+      if (fromIdx < 0 || targetIdx < 0) return;
+
+      const [item] = state.servers.splice(fromIdx, 1);
+      let insertIdx = targetIdx;
+      if (after) insertIdx += 1;
+      if (fromIdx < targetIdx) insertIdx -= 1;
+      state.servers.splice(insertIdx, 0, item);
     }
 
     function ensureFrame(server, panel) {
@@ -82,23 +709,199 @@
 
     function selectServer(server) {
       state.activeServer = server.name;
+      saveState();
       renderSidebar();
       renderTabs(server);
+    }
+
+    async function reloadServers(preferredName) {
+      state.servers = await fetch('/servers').then(r => r.json());
+      renderSidebar();
+      if (state.servers.length === 0) {
+        activateFrame('');
+        return;
+      }
+      const target = state.servers.find(s => s.name === preferredName)
+        || state.servers.find(s => s.name === state.activeServer)
+        || state.servers[0];
+      selectServer(target);
+    }
+
+    async function persistOrder() {
+      await postJson('/remote/reorder', { order: state.servers.map(s => s.name) });
+    }
+
+    async function deleteSession(server) {
+      const label = displayName(server);
+      if (!confirm(`Delete session "${label}"?`)) return;
+
+      try {
+        await postJson('/remote', { action: 'remove', name: server.name });
+        const fallback = state.activeServer === server.name ? null : state.activeServer;
+        await reloadServers(fallback);
+      } catch (err) {
+        alert(`Delete failed: ${err.message}`);
+      }
+    }
+
+    async function deleteSessionAndKill(server) {
+      const label = displayName(server);
+      const ok = confirm(
+        `Delete session profile "${label}" and try to kill its tmux session on this host?\n\n` +
+        `This does NOT remove files, but it can stop long-running terminal tasks in that tmux session.`,
+      );
+      if (!ok) return;
+
+      try {
+        const res = await postJson('/remote', { action: 'remove_kill', name: server.name });
+        const fallback = state.activeServer === server.name ? null : state.activeServer;
+        await reloadServers(fallback);
+
+        if (res.kill) {
+          const status = res.kill.status || 'skipped';
+          const session = res.kill.session || 'unknown';
+          if (status === 'killed') {
+            alert(`Session removed and tmux session "${session}" killed.`);
+          } else if (status === 'not_found') {
+            alert(`Session removed. tmux session "${session}" was not found.`);
+          } else {
+            const reason = res.kill.reason || 'kill skipped';
+            alert(`Session removed. tmux kill skipped: ${reason}`);
+          }
+        }
+      } catch (err) {
+        alert(`Delete+kill failed: ${err.message}`);
+      }
+    }
+
+    async function renameSession(server) {
+      const label = prompt('Session label in left menu:', displayName(server));
+      if (label === null) return;
+
+      try {
+        await postJson('/remote', {
+          action: 'add',
+          name: server.name,
+          ip: server.ip,
+          display: label.trim(),
+        });
+        await reloadServers(server.name);
+      } catch (err) {
+        alert(`Rename failed: ${err.message}`);
+      }
     }
 
     function renderSidebar() {
       const list = document.getElementById('server-list');
       list.innerHTML = '';
-      state.servers.forEach(server => {
-        const heading = document.createElement('h3');
-        heading.textContent = server.name;
-        list.appendChild(heading);
 
-        const btn = document.createElement('button');
-        btn.className = 'server-btn' + (server.name === state.activeServer ? ' active' : '');
-        btn.textContent = server.name;
-        btn.onclick = () => selectServer(server);
-        list.appendChild(btn);
+      state.servers.forEach((server) => {
+        const row = document.createElement('div');
+        row.className = 'session-row';
+        row.dataset.name = server.name;
+
+        row.addEventListener('dragover', (e) => {
+          const sourceName = dragServerName || e.dataTransfer.getData('text/plain');
+          if (!sourceName || sourceName === server.name) return;
+          e.preventDefault();
+          const rect = row.getBoundingClientRect();
+          const after = e.clientY > rect.top + rect.height / 2;
+          row.classList.toggle('drop-before', !after);
+          row.classList.toggle('drop-after', after);
+        });
+
+        row.addEventListener('dragleave', () => {
+          row.classList.remove('drop-before', 'drop-after');
+        });
+
+        row.addEventListener('drop', async (e) => {
+          const sourceName = dragServerName || e.dataTransfer.getData('text/plain');
+          clearDropMarkers();
+          if (!sourceName || sourceName === server.name) return;
+          e.preventDefault();
+
+          const rect = row.getBoundingClientRect();
+          const after = e.clientY > rect.top + rect.height / 2;
+          moveServerTo(sourceName, server.name, after);
+          renderSidebar();
+
+          try {
+            await persistOrder();
+          } catch (err) {
+            alert(`Could not reorder: ${err.message}`);
+            await reloadServers(state.activeServer);
+          }
+        });
+
+        const main = document.createElement('button');
+        main.className = 'session-main' + (server.name === state.activeServer ? ' active' : '');
+        main.onclick = () => selectServer(server);
+
+        const dot = document.createElement('span');
+        dot.className = 'session-dot';
+        dot.style.background = colorForServer(server);
+
+        const text = document.createElement('div');
+        text.className = 'session-text';
+
+        const label = document.createElement('div');
+        label.className = 'session-label';
+        label.textContent = displayName(server);
+
+        const meta = document.createElement('div');
+        meta.className = 'session-meta';
+        meta.textContent = profileNetworkHost(server) || server.ip || 'unknown-host';
+
+        text.appendChild(label);
+        text.appendChild(meta);
+        main.appendChild(dot);
+        main.appendChild(text);
+
+        const actions = document.createElement('div');
+        actions.className = 'session-actions';
+
+        const rename = document.createElement('button');
+        rename.className = 'icon-btn';
+        rename.textContent = 'R';
+        rename.title = 'Rename session label';
+        rename.onclick = (e) => { e.stopPropagation(); renameSession(server); };
+
+        const del = document.createElement('button');
+        del.className = 'icon-btn';
+        del.textContent = 'X';
+        del.title = 'Delete session';
+        del.onclick = (e) => { e.stopPropagation(); deleteSession(server); };
+
+        const kill = document.createElement('button');
+        kill.className = 'icon-btn';
+        kill.textContent = '!';
+        kill.title = 'Delete + kill tmux session';
+        kill.onclick = (e) => { e.stopPropagation(); deleteSessionAndKill(server); };
+
+        const drag = document.createElement('button');
+        drag.className = 'icon-btn drag-handle';
+        drag.textContent = '::';
+        drag.title = 'Drag to reorder';
+        drag.draggable = true;
+        drag.ondragstart = (e) => {
+          dragServerName = server.name;
+          row.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', server.name);
+        };
+        drag.ondragend = () => {
+          dragServerName = null;
+          clearDropMarkers();
+        };
+
+        actions.appendChild(rename);
+        actions.appendChild(del);
+        actions.appendChild(kill);
+        actions.appendChild(drag);
+
+        row.appendChild(main);
+        row.appendChild(actions);
+        list.appendChild(row);
       });
     }
 
@@ -107,12 +910,15 @@
       tabs.innerHTML = '';
 
       if (!server.panels || server.panels.length === 0) {
+        delete state.activeTabByServer[server.name];
+        saveState();
         activateFrame('');
         return;
       }
 
-      const savedFrameId = state.activeFrameByServer[server.name];
+      const savedLabel = state.activeTabByServer[server.name];
       let selectedFrameId = null;
+      let selectedLabel = null;
 
       server.panels.forEach((panel, i) => {
         const frame = ensureFrame(server, panel);
@@ -123,35 +929,84 @@
         btn.onclick = () => {
           document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
-          state.activeFrameByServer[server.name] = frameId;
+          state.activeTabByServer[server.name] = panel.label;
+          saveState();
           activateFrame(frameId);
         };
         tabs.appendChild(btn);
 
-        if ((savedFrameId && savedFrameId === frameId) || (!savedFrameId && i === 0)) {
+        if ((savedLabel && savedLabel === panel.label) || (!savedLabel && i === 0)) {
           selectedFrameId = frameId;
+          selectedLabel = panel.label;
           btn.classList.add('active');
         }
       });
 
       if (!selectedFrameId) {
         selectedFrameId = frameIdFor(server, server.panels[0]);
+        selectedLabel = server.panels[0].label;
       }
 
-      state.activeFrameByServer[server.name] = selectedFrameId;
+      state.activeTabByServer[server.name] = selectedLabel;
+      saveState();
       activateFrame(selectedFrameId);
     }
 
     async function init() {
-      state.servers = await fetch('/servers').then(r => r.json());
-      if (state.servers.length === 0) {
-        renderSidebar();
-        return;
-      }
+      loadState();
+      document.getElementById('add-session-btn').onclick = openAddModal;
 
-      const existing = state.servers.find(s => s.name === state.activeServer);
-      const target = existing || state.servers[0];
-      selectServer(target);
+      addServerSelect.addEventListener('change', () => {
+        updateServerChoiceVisibility();
+        if (addServerSelect.value !== '__new__') {
+          const server = state.servers.find(s => s.name === addServerSelect.value);
+          if (server) {
+            addLabel.value = displayName(server);
+            addServerIp.value = profileNetworkHost(server) || server.ip || '';
+            populateKnownServerOptions(addServerIp.value);
+            const session = terminalSessionForServer(server);
+            fillTmuxSessionOptions(session);
+          }
+        } else {
+          const baseServer = state.servers.find(s => s.name === addBaseSelect.value)
+            || state.servers.find(s => s.name === state.activeServer)
+            || state.servers[0];
+          const suggestedIp = baseServer ? (profileNetworkHost(baseServer) || baseServer.ip || '') : '';
+          addServerIp.value = suggestedIp;
+          addLabel.value = addLabel.value || (baseServer ? displayName(baseServer) : '');
+          populateKnownServerOptions(suggestedIp);
+        }
+        updateSessionSourceVisibility();
+      });
+
+      addKnownServer.addEventListener('change', () => {
+        const selectedIp = addKnownServer.value;
+        if (selectedIp) {
+          addServerIp.value = selectedIp;
+          const match = HOMELAB_SERVERS.find((s) => s.ip === selectedIp);
+          if (match && !addLabel.value.trim()) addLabel.value = match.name;
+        }
+      });
+
+      document.querySelectorAll('input[name="tmux-source"]').forEach((radio) => {
+        radio.addEventListener('change', updateSessionSourceVisibility);
+      });
+
+      document.getElementById('add-cancel').onclick = closeAddModal;
+      document.getElementById('add-submit').onclick = submitAddModal;
+
+      addModal.addEventListener('click', (e) => {
+        if (e.target === addModal) closeAddModal();
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && addModal.classList.contains('open')) {
+          closeAddModal();
+        }
+      });
+
+      await reloadServers(state.activeServer);
+      if (state.servers.length === 0) return;
     }
 
     init();

@@ -1,8 +1,13 @@
 import json
 import os
+import shutil
+import socket
+import subprocess
 import threading
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
@@ -24,11 +29,17 @@ class TabRequest(BaseModel):
 
 
 class RemoteRequest(BaseModel):
-    action: Literal["add", "remove"] = "add"
+    action: Literal["add", "remove", "remove_kill"] = "add"
     name: str = Field(min_length=1, max_length=80)
+    display: str | None = None
     ip: str | None = None
     base: str | None = "netochka"
-    position: Literal["top", "bottom"] = "top"
+    position: Literal["top", "bottom"] | None = None
+    terminal_session: str | None = None
+
+
+class ReorderRequest(BaseModel):
+    order: list[str]
 
 
 def _normalize_path(path: str) -> str:
@@ -62,6 +73,92 @@ def _save_servers(servers: list[dict[str, Any]]) -> None:
 
 def _clone_panels(server: dict[str, Any]) -> list[dict[str, Any]]:
     return [dict(panel) for panel in server.get("panels", [])]
+
+
+def _terminal_session_path(session: str) -> str:
+    return f"/?arg={quote(session, safe='')}"
+
+
+def _set_terminal_session(panels: list[dict[str, Any]], session: str) -> None:
+    for panel in panels:
+        if str(panel.get("label", "")) == "Terminal":
+            panel["path"] = _terminal_session_path(session)
+
+
+def _extract_terminal_session(server: dict[str, Any]) -> str | None:
+    for panel in server.get("panels", []):
+        if str(panel.get("label", "")) != "Terminal":
+            continue
+        raw_path = str(panel.get("path", "/"))
+        query = parse_qs(urlparse(raw_path).query)
+        arg = query.get("arg", [""])[0].strip()
+        return arg or "1"
+    return None
+
+
+def _local_host_values() -> set[str]:
+    values = {
+        "127.0.0.1",
+        "::1",
+        "localhost",
+        os.getenv("BIND_HOST", ""),
+        os.getenv("PUBLIC_HOST", ""),
+        socket.gethostname(),
+        socket.getfqdn(),
+    }
+    return {v for v in values if v}
+
+
+def _is_local_server(server: dict[str, Any]) -> bool:
+    ip = str(server.get("ip", "")).strip()
+    if not ip:
+        return True
+    return ip in _local_host_values()
+
+
+def _tmux_session_exists(session: str) -> bool:
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", session],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _kill_tmux_session(session: str) -> bool:
+    if not _tmux_session_exists(session):
+        return False
+    result = subprocess.run(
+        ["tmux", "kill-session", "-t", session],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _list_tmux_sessions() -> list[str]:
+    if not shutil.which("tmux"):
+        return []
+
+    result = subprocess.run(
+        ["tmux", "ls"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+
+    sessions: list[str] = []
+    for line in result.stdout.splitlines():
+        if ":" not in line:
+            continue
+        name = line.split(":", 1)[0].strip()
+        if name:
+            sessions.append(name)
+    return sessions
 
 
 def _apply_port_overrides(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -130,8 +227,11 @@ Specs:
 
 Runtime:
 - Health: GET {base}/servers
+- tmux sessions: GET {base}/tmux/sessions
 - Add/update tab: POST {base}/tab
 - Add/remove remote: POST {base}/remote
+- Reorder remotes: POST {base}/remote/reorder
+- Remove + kill tmux session: POST {base}/remote with action=remove_kill
 
 Example:
 curl -X POST {base}/tab \
@@ -140,7 +240,7 @@ curl -X POST {base}/tab \
 
 curl -X POST {base}/remote \
   -H 'content-type: application/json' \
-  -d '{{"action":"add","name":"gx10","ip":"100.118.187.64","base":"netochka","position":"top"}}'
+  -d '{{"action":"add","name":"netochka-job2","display":"netochka","ip":"100.119.43.10","base":"netochka","position":"top","terminal_session":"webterm"}}'
 """
 
 
@@ -152,6 +252,15 @@ def index() -> str:
 @app.get("/servers")
 def servers() -> list[dict]:
     return _apply_port_overrides(_load_servers())
+
+
+@app.get("/tmux/sessions")
+def tmux_sessions() -> dict[str, Any]:
+    return {
+        "available": bool(shutil.which("tmux")),
+        "sessions": _list_tmux_sessions(),
+        "host": socket.gethostname(),
+    }
 
 
 @app.get("/agents", response_class=PlainTextResponse)
@@ -229,22 +338,60 @@ def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
         data = _load_servers()
         remote_index = next((i for i, s in enumerate(data) if s.get("name") == payload.name), None)
 
-        if payload.action == "remove":
+        if payload.action in {"remove", "remove_kill"}:
             if remote_index is None:
                 raise HTTPException(status_code=404, detail="remote not found")
             removed = data.pop(remote_index)
+
+            kill_result: dict[str, Any] | None = None
+            if payload.action == "remove_kill":
+                session = _extract_terminal_session(removed)
+                kill_result = {
+                    "requested": True,
+                    "session": session,
+                    "status": "skipped",
+                    "reason": "",
+                }
+
+                if not session:
+                    kill_result["reason"] = "no terminal panel/session found"
+                elif not _is_local_server(removed):
+                    kill_result["reason"] = "remote profile does not target this host"
+                elif not shutil.which("tmux"):
+                    kill_result["reason"] = "tmux not available on host"
+                else:
+                    shared = [
+                        s
+                        for s in data
+                        if _is_local_server(s) and _extract_terminal_session(s) == session
+                    ]
+                    if shared:
+                        kill_result["reason"] = "session still used by other profiles"
+                        kill_result["shared_by"] = [str(s.get("name", "")) for s in shared]
+                    elif _kill_tmux_session(session):
+                        kill_result["status"] = "killed"
+                        kill_result["reason"] = ""
+                    elif _tmux_session_exists(session):
+                        kill_result["reason"] = "unable to kill tmux session"
+                    else:
+                        kill_result["status"] = "not_found"
+                        kill_result["reason"] = "tmux session not found"
+
             _save_servers(data)
-            return {
+            response = {
                 "status": "ok",
                 "action": "removed",
                 "remote": removed,
                 "servers": data,
             }
-
-        if not payload.ip:
-            raise HTTPException(status_code=400, detail="ip is required when action is add")
+            if kill_result is not None:
+                response["kill"] = kill_result
+            return response
 
         if remote_index is None:
+            if not payload.ip:
+                raise HTTPException(status_code=400, detail="ip is required when creating a remote")
+
             panels: list[dict[str, Any]] = []
             if payload.base:
                 base_server = next((s for s in data if s.get("name") == payload.base), None)
@@ -252,19 +399,34 @@ def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
                     raise HTTPException(status_code=404, detail="base server not found")
                 panels = _clone_panels(base_server)
 
+            if payload.terminal_session:
+                _set_terminal_session(panels, payload.terminal_session)
+
             remote = {
                 "name": payload.name,
                 "ip": payload.ip,
                 "panels": panels,
             }
-            if payload.position == "top":
-                data.insert(0, remote)
-            else:
+            if payload.display:
+                remote["display"] = payload.display
+            if payload.position == "bottom":
                 data.append(remote)
+            else:
+                data.insert(0, remote)
             action = "added"
         else:
             remote = data[remote_index]
-            remote["ip"] = payload.ip
+            if payload.ip:
+                remote["ip"] = payload.ip
+            if payload.display is not None:
+                if payload.display:
+                    remote["display"] = payload.display
+                else:
+                    remote.pop("display", None)
+
+            if payload.terminal_session:
+                _set_terminal_session(remote.setdefault("panels", []), payload.terminal_session)
+
             if payload.position == "top" and remote_index != 0:
                 data.insert(0, data.pop(remote_index))
             elif payload.position == "bottom" and remote_index != len(data) - 1:
@@ -278,4 +440,25 @@ def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
         "action": action,
         "remote": remote,
         "servers": data,
+    }
+
+
+@app.post("/remote/reorder")
+def reorder_remotes(payload: ReorderRequest) -> dict[str, Any]:
+    with SERVERS_LOCK:
+        data = _load_servers()
+        existing_names = [str(s.get("name", "")) for s in data]
+
+        if len(payload.order) != len(existing_names):
+            raise HTTPException(status_code=400, detail="order length mismatch")
+        if set(payload.order) != set(existing_names):
+            raise HTTPException(status_code=400, detail="order must contain the same remote names")
+
+        by_name = {str(s.get("name", "")): s for s in data}
+        reordered = [by_name[name] for name in payload.order]
+        _save_servers(reordered)
+
+    return {
+        "status": "ok",
+        "servers": reordered,
     }

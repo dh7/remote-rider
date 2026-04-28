@@ -118,8 +118,23 @@ fi
 echo "Starting all services..."
 
 if [[ "$DISABLE_TERMINAL" == "0" ]]; then
-  "$TTYD_BIN" -W -i "$BIND_HOST" -p "$TERM_PORT" "$SHELL_CMD" > "$LOG_DIR/ttyd.log" 2>&1 &
+  TERM_CMD=("$SHELL_CMD")
+  TERM_BACKEND="shell"
+  TERM_URLARG_FLAG=()
+
+  if command -v tmux >/dev/null 2>&1; then
+    TERM_BACKEND="tmux"
+    TERM_CMD=("./terminal-entry.sh")
+    TERM_URLARG_FLAG=("-a")
+  else
+    echo "  tmux    -> not found, falling back to plain shell" >&2
+  fi
+
+  "$TTYD_BIN" -W "${TERM_URLARG_FLAG[@]}" -i "$BIND_HOST" -p "$TERM_PORT" "${TERM_CMD[@]}" > "$LOG_DIR/ttyd.log" 2>&1 &
   echo "  ttyd    -> http://$PUBLIC_HOST:$TERM_PORT"
+  if [[ "$TERM_BACKEND" == "tmux" ]]; then
+    echo "  tmux    -> default session '1' (or set per URL: ?arg=<session>)"
+  fi
 else
   : > "$LOG_DIR/ttyd.log"
   echo "  ttyd    -> skipped (ttyd not installed)"
