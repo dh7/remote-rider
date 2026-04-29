@@ -20,6 +20,12 @@ elif [[ -x "$VENV/ttyd" ]]; then
   TTYD_BIN="$VENV/ttyd"
 fi
 
+if [[ -n "$TTYD_BIN" ]]; then
+  export DISABLE_TERMINAL=0
+else
+  export DISABLE_TERMINAL=1
+fi
+
 TAILSCALE_IP=""
 if command -v tailscale >/dev/null 2>&1; then
   while IFS= read -r line; do
