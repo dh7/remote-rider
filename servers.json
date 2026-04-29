@@ -1,25 +1,24 @@
 [
   {
     "name": "netochka",
-    "ip": "127.0.0.1",
+    "display": "netochka",
+    "ip": "100.119.43.10",
     "panels": [
-      {
-        "label": "Terminal",
-        "port": 7681
-      },
-      {
-        "label": "Monitor",
-        "port": 8001
-      },
-      {
-        "label": "Logs",
-        "port": 8002
-      },
-      {
-        "label": "Files",
-        "port": 8080,
-        "path": "/files"
-      }
+      { "label": "Terminal", "port": 7681 },
+      { "label": "Monitor", "port": 8001 },
+      { "label": "Logs", "port": 8002 },
+      { "label": "Files", "port": 8080, "path": "/files" }
+    ]
+  },
+  {
+    "name": "gx10",
+    "display": "gx10",
+    "ip": "100.118.187.64",
+    "panels": [
+      { "label": "Terminal", "port": 7681 },
+      { "label": "Monitor", "port": 8001 },
+      { "label": "Logs", "port": 8002 },
+      { "label": "Files", "port": 8080, "path": "/files" }
     ]
   }
 ]

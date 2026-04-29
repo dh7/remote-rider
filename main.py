@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -40,6 +42,12 @@ class RemoteRequest(BaseModel):
 
 class ReorderRequest(BaseModel):
     order: list[str]
+
+
+class TmuxKillRequest(BaseModel):
+    host: str
+    session: str = Field(min_length=1, max_length=120)
+    port: int = Field(default=7000, ge=1, le=65535)
 
 
 def _normalize_path(path: str) -> str:
@@ -109,11 +117,24 @@ def _local_host_values() -> set[str]:
     return {v for v in values if v}
 
 
+def _normalize_host(host: str) -> str:
+    cleaned = host.strip().lower()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="host is required")
+    if any(ch in cleaned for ch in ["/", "?", "#", "@"]):
+        raise HTTPException(status_code=400, detail="invalid host")
+    return cleaned
+
+
 def _is_local_server(server: dict[str, Any]) -> bool:
     ip = str(server.get("ip", "")).strip()
     if not ip:
         return True
     return ip in _local_host_values()
+
+
+def _is_local_host(host: str) -> bool:
+    return host in {v.lower() for v in _local_host_values()}
 
 
 def _tmux_session_exists(session: str) -> bool:
@@ -161,6 +182,39 @@ def _list_tmux_sessions() -> list[str]:
     return sessions
 
 
+def _fetch_remote_tmux_sessions(host: str, port: int) -> dict[str, Any]:
+    cleaned_host = _normalize_host(host)
+    if _is_local_host(cleaned_host):
+        return {
+            "available": bool(shutil.which("tmux")),
+            "sessions": _list_tmux_sessions(),
+            "host": socket.gethostname(),
+            "source": "local",
+        }
+
+    url = f"http://{cleaned_host}:{port}/tmux/sessions"
+    req = UrlRequest(url, method="GET")
+    try:
+        with urlopen(req, timeout=2.5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response shape")
+            return {
+                "available": bool(payload.get("available", False)),
+                "sessions": list(payload.get("sessions", [])),
+                "host": str(payload.get("host", cleaned_host)),
+                "source": "proxy",
+            }
+    except Exception as exc:
+        return {
+            "available": False,
+            "sessions": [],
+            "host": cleaned_host,
+            "source": "proxy",
+            "error": str(exc),
+        }
+
+
 def _apply_port_overrides(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     env_map = {
         "Terminal": "TERM_PORT",
@@ -197,8 +251,8 @@ API: Web Terminal Hub
 
 Context:
 - This API manages a local web-terminal dashboard and panel tabs.
-- State is persisted in servers.json next to the hub app.
-- Tabs are rendered by the UI from GET /servers responses.
+- UI profile state is persisted in client localStorage.
+- GET /servers returns bootstrap defaults from servers.json.
 
 Auth:
 - None (local/private network use).
@@ -228,6 +282,8 @@ Specs:
 Runtime:
 - Health: GET {base}/servers
 - tmux sessions: GET {base}/tmux/sessions
+- tmux sessions by host: GET {base}/tmux/sessions/proxy?host=<ip>&port=7000
+- kill tmux session: POST {base}/tmux/kill
 - Add/update tab: POST {base}/tab
 - Add/remove remote: POST {base}/remote
 - Reorder remotes: POST {base}/remote/reorder
@@ -261,6 +317,46 @@ def tmux_sessions() -> dict[str, Any]:
         "sessions": _list_tmux_sessions(),
         "host": socket.gethostname(),
     }
+
+
+@app.get("/tmux/sessions/proxy")
+def tmux_sessions_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
+    return _fetch_remote_tmux_sessions(host, port)
+
+
+@app.post("/tmux/kill")
+def tmux_kill(payload: TmuxKillRequest) -> dict[str, Any]:
+    host = _normalize_host(payload.host)
+    session = payload.session.strip()
+    if not session:
+        raise HTTPException(status_code=400, detail="session is required")
+
+    if _is_local_host(host):
+        if not shutil.which("tmux"):
+            return {"status": "skipped", "reason": "tmux not available", "host": host, "session": session}
+        if _kill_tmux_session(session):
+            return {"status": "killed", "host": host, "session": session}
+        if _tmux_session_exists(session):
+            return {"status": "error", "reason": "unable to kill session", "host": host, "session": session}
+        return {"status": "not_found", "host": host, "session": session}
+
+    url = f"http://{host}:{payload.port}/tmux/kill"
+    req = UrlRequest(
+        url,
+        data=json.dumps({"host": "127.0.0.1", "session": session, "port": payload.port}).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=3) as resp:
+            remote_payload = json.loads(resp.read().decode("utf-8"))
+            if isinstance(remote_payload, dict):
+                remote_payload.setdefault("source", "proxy")
+                return remote_payload
+    except Exception as exc:
+        return {"status": "error", "reason": str(exc), "host": host, "session": session, "source": "proxy"}
+
+    return {"status": "error", "reason": "invalid response", "host": host, "session": session, "source": "proxy"}
 
 
 @app.get("/agents", response_class=PlainTextResponse)

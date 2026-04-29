@@ -129,11 +129,6 @@
       line-height: 0.8rem;
     }
 
-    .icon-btn:disabled {
-      opacity: 0.35;
-      cursor: default;
-    }
-
     .drag-handle {
       cursor: grab;
       font-size: 0.72rem;
@@ -322,14 +317,8 @@
   </div>
 
   <script>
-    const STORAGE_KEY = 'webterm-ui-state-v2';
-
-    const state = {
-      servers: [],
-      activeServer: null,
-      activeTabByServer: {},
-      tmuxSessions: [],
-    };
+    const UI_KEY = 'webterm-ui-state-v2';
+    const PROFILES_KEY = 'webterm-profiles-v1';
 
     const HOMELAB_SERVERS = [
       { name: 'netochka', ip: '100.119.43.10', aliases: ['netochka-01', 'netoska'] },
@@ -339,6 +328,13 @@
       { name: 'tailscale', ip: '100.89.14.119', aliases: [] },
       { name: 'dh7-syno-01', ip: '100.107.84.55', aliases: ['synology'] },
     ];
+
+    const state = {
+      servers: [],
+      activeServer: null,
+      activeTabByServer: {},
+      tmuxSessions: [],
+    };
 
     const addModal = document.getElementById('add-modal');
     const addServerSelect = document.getElementById('add-server-select');
@@ -354,9 +350,9 @@
     const addNewSession = document.getElementById('add-new-session');
     const addNote = document.getElementById('add-note');
 
-    function loadState() {
+    function loadUIState() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = localStorage.getItem(UI_KEY);
         if (!raw) return;
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
@@ -368,29 +364,56 @@
       } catch (_) {}
     }
 
-    function saveState() {
+    function saveUIState() {
       try {
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({
-            activeServer: state.activeServer,
-            activeTabByServer: state.activeTabByServer,
-          }),
-        );
+        localStorage.setItem(UI_KEY, JSON.stringify({
+          activeServer: state.activeServer,
+          activeTabByServer: state.activeTabByServer,
+        }));
       } catch (_) {}
     }
 
-    async function postJson(url, payload) {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload || {}),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
+    function saveProfiles() {
+      try {
+        localStorage.setItem(PROFILES_KEY, JSON.stringify(state.servers));
+      } catch (_) {}
+    }
+
+    function normalizeProfile(raw) {
+      if (!raw || typeof raw !== 'object') return null;
+      if (!raw.name || !Array.isArray(raw.panels)) return null;
+      return {
+        name: String(raw.name),
+        display: raw.display ? String(raw.display) : undefined,
+        ip: raw.ip ? String(raw.ip) : '127.0.0.1',
+        panels: raw.panels.map((p) => ({
+          label: String(p.label || ''),
+          port: Number(p.port || 0),
+          path: p.path ? String(p.path) : undefined,
+          protocol: p.protocol ? String(p.protocol) : undefined,
+        })).filter((p) => p.label && p.port),
+      };
+    }
+
+    async function loadProfilesFromBootstrap() {
+      const bootstrap = await fetch('/servers').then((r) => r.json()).catch(() => []);
+      const fromBootstrap = Array.isArray(bootstrap)
+        ? bootstrap.map(normalizeProfile).filter(Boolean)
+        : [];
+
+      try {
+        const raw = localStorage.getItem(PROFILES_KEY);
+        if (!raw) {
+          state.servers = fromBootstrap;
+          saveProfiles();
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        const localProfiles = Array.isArray(parsed) ? parsed.map(normalizeProfile).filter(Boolean) : [];
+        state.servers = localProfiles.length ? localProfiles : fromBootstrap;
+      } catch (_) {
+        state.servers = fromBootstrap;
       }
-      return res.json();
     }
 
     function slug(value) {
@@ -398,11 +421,8 @@
     }
 
     function makeUniqueName(base) {
-      const cleaned = String(base || 'session')
-        .toLowerCase()
-        .replace(/[^a-z0-9._-]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'session';
-      const names = new Set(state.servers.map(s => s.name));
+      const cleaned = String(base || 'session').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
+      const names = new Set(state.servers.map((s) => s.name));
       if (!names.has(cleaned)) return cleaned;
       let i = 2;
       while (names.has(`${cleaned}-${i}`)) i += 1;
@@ -418,9 +438,7 @@
     }
 
     function resolveHost(host) {
-      if (!host || host === '127.0.0.1' || host === 'localhost' || host === '::1') {
-        return window.location.hostname;
-      }
+      if (!host || host === '127.0.0.1' || host === 'localhost' || host === '::1') return window.location.hostname;
       return host;
     }
 
@@ -432,16 +450,13 @@
       const key = String(text || '').trim().toLowerCase();
       if (!key) return '';
       const keyTokens = key.split(/[^a-z0-9._-]+/).filter(Boolean);
-
       for (const server of HOMELAB_SERVERS) {
-        if (server.ip === key) return server.ip;
-
         const names = [server.name, ...(server.aliases || [])].map((x) => x.toLowerCase());
+        if (server.ip === key) return server.ip;
         if (names.includes(key)) return server.ip;
         if (names.some((n) => key.includes(n))) return server.ip;
         if (keyTokens.some((tok) => names.includes(tok))) return server.ip;
       }
-
       return '';
     }
 
@@ -452,7 +467,7 @@
     }
 
     function colorForServer(server) {
-      const key = `${server.ip || ''}`;
+      const key = `${profileNetworkHost(server) || server.ip || ''}`;
       let hash = 0;
       for (let i = 0; i < key.length; i += 1) hash = ((hash << 5) - hash) + key.charCodeAt(i);
       const hue = Math.abs(hash) % 360;
@@ -460,11 +475,11 @@
     }
 
     function terminalSessionForServer(server) {
-      const terminal = (server.panels || []).find(p => p.label === 'Terminal');
+      const terminal = (server.panels || []).find((p) => p.label === 'Terminal');
       if (!terminal || !terminal.path) return '1';
-      const qIdx = terminal.path.indexOf('?');
-      if (qIdx < 0) return '1';
-      const params = new URLSearchParams(terminal.path.slice(qIdx + 1));
+      const idx = terminal.path.indexOf('?');
+      if (idx < 0) return '1';
+      const params = new URLSearchParams(terminal.path.slice(idx + 1));
       return params.get('arg') || '1';
     }
 
@@ -473,215 +488,18 @@
       return cleaned || '1';
     }
 
-    async function refreshTmuxSessions() {
-      try {
-        const payload = await fetch('/tmux/sessions').then(r => r.json());
-        if (Array.isArray(payload.sessions)) {
-          state.tmuxSessions = payload.sessions;
-          addNote.textContent = payload.available
-            ? `tmux sessions on ${payload.host || 'this host'}: ${state.tmuxSessions.join(', ') || 'none'}`
-            : 'tmux is not available on this host';
-        }
-      } catch (_) {
-        state.tmuxSessions = [];
-        addNote.textContent = 'Could not load tmux sessions from server.';
-      }
+    function clonePanels(source) {
+      return (source.panels || []).map((p) => ({ ...p }));
     }
 
-    function fillTmuxSessionOptions(defaultSession) {
-      addExistingSession.innerHTML = '';
-      const sessions = state.tmuxSessions.slice();
-      sessions.forEach((name) => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        addExistingSession.appendChild(opt);
-      });
-
-      if (!sessions.length) {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = '(no existing tmux sessions found)';
-        addExistingSession.appendChild(opt);
-      }
-
-      addExistingSession.value = sessions.includes(defaultSession) ? defaultSession : (sessions[0] || '');
-    }
-
-    function updateSessionSourceVisibility() {
-      const source = document.querySelector('input[name="tmux-source"]:checked')?.value || 'existing';
-      if (source === 'existing' && !state.tmuxSessions.length) {
-        const preferredNew = document.querySelector('input[name="tmux-source"][value="new"]');
-        preferredNew.checked = true;
-      }
-      const effectiveSource = document.querySelector('input[name="tmux-source"]:checked')?.value || 'new';
-      const usingExisting = effectiveSource === 'existing' && state.tmuxSessions.length > 0;
-      addExistingWrap.classList.toggle('hidden', !usingExisting);
-      addNewSessionWrap.classList.toggle('hidden', usingExisting);
-    }
-
-    function updateServerChoiceVisibility() {
-      const isNewServer = addServerSelect.value === '__new__';
-      addNewServerWrap.classList.toggle('hidden', !isNewServer);
-      addKnownServerWrap.classList.toggle('hidden', !isNewServer);
-    }
-
-    function populateKnownServerOptions(defaultIp) {
-      addKnownServer.innerHTML = '';
-
-      const manual = document.createElement('option');
-      manual.value = '';
-      manual.textContent = 'Manual IP/host';
-      addKnownServer.appendChild(manual);
-
-      HOMELAB_SERVERS.forEach((server) => {
-        const opt = document.createElement('option');
-        opt.value = server.ip;
-        opt.textContent = `${server.name} (${server.ip})`;
-        addKnownServer.appendChild(opt);
-      });
-
-      const match = HOMELAB_SERVERS.find((s) => s.ip === defaultIp);
-      addKnownServer.value = match ? match.ip : '';
-    }
-
-    function populateServerChoices() {
-      const current = state.servers.find(s => s.name === state.activeServer) || state.servers[0];
-
-      addServerSelect.innerHTML = '';
-      addBaseSelect.innerHTML = '';
-
-      state.servers.forEach((server) => {
-        const display = `${displayName(server)} (${profileNetworkHost(server) || server.ip || 'unknown-host'})`;
-
-        const opt = document.createElement('option');
-        opt.value = server.name;
-        opt.textContent = display;
-        addServerSelect.appendChild(opt);
-
-        const baseOpt = document.createElement('option');
-        baseOpt.value = server.name;
-        baseOpt.textContent = display;
-        addBaseSelect.appendChild(baseOpt);
-      });
-
-      const newOpt = document.createElement('option');
-      newOpt.value = '__new__';
-      newOpt.textContent = '+ New server profile';
-      addServerSelect.appendChild(newOpt);
-
-      if (current) {
-        addServerSelect.value = current.name;
-        addBaseSelect.value = current.name;
-        addServerIp.value = profileNetworkHost(current) || current.ip || '';
-        addLabel.value = displayName(current);
-        populateKnownServerOptions(addServerIp.value);
-        const defaultSession = terminalSessionForServer(current);
-        fillTmuxSessionOptions(defaultSession);
-        addNewSession.value = defaultSession === '1' ? 'job1' : `${defaultSession}-copy`;
-
-        const preferredExisting = document.querySelector('input[name="tmux-source"][value="existing"]');
-        const preferredNew = document.querySelector('input[name="tmux-source"][value="new"]');
-        if (state.tmuxSessions.length) {
-          preferredExisting.checked = true;
-        } else {
-          preferredNew.checked = true;
-        }
-      }
-
-      updateServerChoiceVisibility();
-      updateSessionSourceVisibility();
-    }
-
-    async function openAddModal() {
-      if (!state.servers.length) return;
-      await refreshTmuxSessions();
-      populateServerChoices();
-      addModal.classList.add('open');
-    }
-
-    function closeAddModal() {
-      addModal.classList.remove('open');
-    }
-
-    async function submitAddModal() {
-      const selected = addServerSelect.value;
-      const isNewServer = selected === '__new__';
-
-      let ip = '';
-      let base = '';
-      let label = addLabel.value.trim();
-      let nameBase = '';
-
-      if (isNewServer) {
-        ip = addServerIp.value.trim();
-        if (!ip) {
-          alert('Please set the server IP/host.');
-          return;
-        }
-        base = addBaseSelect.value || (state.servers[0] && state.servers[0].name) || '';
-        if (!base) {
-          alert('Please select a base profile.');
-          return;
-        }
-        label = label || ip;
-        nameBase = label || ip;
+    function setTerminalSession(profile, session) {
+      const terminal = (profile.panels || []).find((p) => p.label === 'Terminal');
+      if (!terminal) return;
+      if (session === '1') {
+        delete terminal.path;
       } else {
-        const src = state.servers.find(s => s.name === selected);
-        if (!src) return;
-        ip = profileNetworkHost(src) || src.ip;
-        base = src.name;
-        label = label || displayName(src);
-        nameBase = `${src.name}-${label}`;
+        terminal.path = `/?arg=${encodeURIComponent(session)}`;
       }
-
-      const source = document.querySelector('input[name="tmux-source"]:checked')?.value || 'existing';
-      const session = sanitizeSessionName(
-        source === 'existing' ? addExistingSession.value : addNewSession.value,
-      );
-
-      const name = makeUniqueName(`${nameBase}-${session}`);
-
-      try {
-        await postJson('/remote', {
-          action: 'add',
-          name,
-          display: label,
-          ip,
-          base,
-          position: 'top',
-          terminal_session: session,
-        });
-        closeAddModal();
-        await reloadServers(name);
-      } catch (err) {
-        alert(`Create failed: ${err.message}`);
-      }
-    }
-
-    let dragServerName = null;
-
-    function clearDropMarkers() {
-      document.querySelectorAll('.session-row.drop-before, .session-row.drop-after').forEach((el) => {
-        el.classList.remove('drop-before', 'drop-after');
-      });
-      document.querySelectorAll('.session-row.dragging').forEach((el) => {
-        el.classList.remove('dragging');
-      });
-    }
-
-    function moveServerTo(dragName, targetName, after) {
-      if (!dragName || !targetName || dragName === targetName) return;
-
-      const fromIdx = state.servers.findIndex(s => s.name === dragName);
-      const targetIdx = state.servers.findIndex(s => s.name === targetName);
-      if (fromIdx < 0 || targetIdx < 0) return;
-
-      const [item] = state.servers.splice(fromIdx, 1);
-      let insertIdx = targetIdx;
-      if (after) insertIdx += 1;
-      if (fromIdx < targetIdx) insertIdx -= 1;
-      state.servers.splice(insertIdx, 0, item);
     }
 
     function ensureFrame(server, panel) {
@@ -702,93 +520,261 @@
     }
 
     function activateFrame(frameId) {
-      document.querySelectorAll('#frames iframe').forEach(f => f.classList.remove('active'));
+      document.querySelectorAll('#frames iframe').forEach((f) => f.classList.remove('active'));
       const frame = document.getElementById(frameId);
       if (frame) frame.classList.add('active');
     }
 
     function selectServer(server) {
       state.activeServer = server.name;
-      saveState();
+      saveUIState();
       renderSidebar();
       renderTabs(server);
     }
 
-    async function reloadServers(preferredName) {
-      state.servers = await fetch('/servers').then(r => r.json());
+    function reloadServers(preferredName) {
       renderSidebar();
-      if (state.servers.length === 0) {
+      if (!state.servers.length) {
         activateFrame('');
         return;
       }
-      const target = state.servers.find(s => s.name === preferredName)
-        || state.servers.find(s => s.name === state.activeServer)
+      const target = state.servers.find((s) => s.name === preferredName)
+        || state.servers.find((s) => s.name === state.activeServer)
         || state.servers[0];
       selectServer(target);
     }
 
-    async function persistOrder() {
-      await postJson('/remote/reorder', { order: state.servers.map(s => s.name) });
-    }
-
     async function deleteSession(server) {
-      const label = displayName(server);
-      if (!confirm(`Delete session "${label}"?`)) return;
-
-      try {
-        await postJson('/remote', { action: 'remove', name: server.name });
-        const fallback = state.activeServer === server.name ? null : state.activeServer;
-        await reloadServers(fallback);
-      } catch (err) {
-        alert(`Delete failed: ${err.message}`);
-      }
+      if (!confirm(`Delete session "${displayName(server)}"?`)) return;
+      state.servers = state.servers.filter((s) => s.name !== server.name);
+      saveProfiles();
+      const fallback = state.activeServer === server.name ? null : state.activeServer;
+      reloadServers(fallback);
     }
 
     async function deleteSessionAndKill(server) {
-      const label = displayName(server);
+      const session = terminalSessionForServer(server);
+      const host = profileNetworkHost(server) || server.ip;
       const ok = confirm(
-        `Delete session profile "${label}" and try to kill its tmux session on this host?\n\n` +
-        `This does NOT remove files, but it can stop long-running terminal tasks in that tmux session.`,
+        `Delete profile "${displayName(server)}" and try to kill tmux session "${session}" on ${host}?\n\n` +
+        `This can stop running terminal tasks.`
       );
       if (!ok) return;
 
       try {
-        const res = await postJson('/remote', { action: 'remove_kill', name: server.name });
-        const fallback = state.activeServer === server.name ? null : state.activeServer;
-        await reloadServers(fallback);
-
-        if (res.kill) {
-          const status = res.kill.status || 'skipped';
-          const session = res.kill.session || 'unknown';
-          if (status === 'killed') {
-            alert(`Session removed and tmux session "${session}" killed.`);
-          } else if (status === 'not_found') {
-            alert(`Session removed. tmux session "${session}" was not found.`);
-          } else {
-            const reason = res.kill.reason || 'kill skipped';
-            alert(`Session removed. tmux kill skipped: ${reason}`);
-          }
-        }
+        const res = await fetch('/tmux/kill', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ host, session, port: 7000 }),
+        }).then((r) => r.json());
+        const status = res.status || 'unknown';
+        if (status === 'killed') alert(`tmux session "${session}" killed on ${host}.`);
+        else if (status === 'not_found') alert(`tmux session "${session}" not found on ${host}.`);
+        else if (status === 'skipped') alert(`tmux kill skipped: ${res.reason || 'unknown'}`);
+        else if (status === 'error') alert(`tmux kill error: ${res.reason || 'unknown'}`);
       } catch (err) {
-        alert(`Delete+kill failed: ${err.message}`);
+        alert(`tmux kill request failed: ${err.message}`);
       }
+
+      state.servers = state.servers.filter((s) => s.name !== server.name);
+      saveProfiles();
+      const fallback = state.activeServer === server.name ? null : state.activeServer;
+      reloadServers(fallback);
     }
 
     async function renameSession(server) {
       const label = prompt('Session label in left menu:', displayName(server));
       if (label === null) return;
+      server.display = label.trim() || server.name;
+      saveProfiles();
+      renderSidebar();
+    }
 
+    async function refreshTmuxSessions(host) {
+      const query = new URLSearchParams({ host: host || '127.0.0.1', port: '7000' }).toString();
       try {
-        await postJson('/remote', {
-          action: 'add',
-          name: server.name,
-          ip: server.ip,
-          display: label.trim(),
-        });
-        await reloadServers(server.name);
+        const payload = await fetch(`/tmux/sessions/proxy?${query}`).then((r) => r.json());
+        state.tmuxSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+        const header = payload.host || host || 'unknown';
+        addNote.textContent = payload.error
+          ? `Could not fetch tmux from ${header}: ${payload.error}`
+          : `tmux sessions on ${header}: ${state.tmuxSessions.join(', ') || 'none'}`;
       } catch (err) {
-        alert(`Rename failed: ${err.message}`);
+        state.tmuxSessions = [];
+        addNote.textContent = `Could not fetch tmux sessions: ${err.message}`;
       }
+    }
+
+    function fillTmuxOptions(defaultSession) {
+      addExistingSession.innerHTML = '';
+      const sessions = state.tmuxSessions.slice();
+      for (const s of sessions) {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        addExistingSession.appendChild(opt);
+      }
+      if (!sessions.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '(no existing tmux sessions found)';
+        addExistingSession.appendChild(opt);
+      }
+      addExistingSession.value = sessions.includes(defaultSession) ? defaultSession : (sessions[0] || '');
+    }
+
+    function updateSessionSourceVisibility() {
+      const source = document.querySelector('input[name="tmux-source"]:checked')?.value || 'existing';
+      if (source === 'existing' && !state.tmuxSessions.length) {
+        document.querySelector('input[name="tmux-source"][value="new"]').checked = true;
+      }
+      const effective = document.querySelector('input[name="tmux-source"]:checked')?.value || 'new';
+      const usingExisting = effective === 'existing' && state.tmuxSessions.length > 0;
+      addExistingWrap.classList.toggle('hidden', !usingExisting);
+      addNewSessionWrap.classList.toggle('hidden', usingExisting);
+    }
+
+    function updateServerChoiceVisibility() {
+      const isNew = addServerSelect.value === '__new__';
+      addNewServerWrap.classList.toggle('hidden', !isNew);
+      addKnownServerWrap.classList.toggle('hidden', !isNew);
+    }
+
+    function populateKnownServerOptions(defaultIp) {
+      addKnownServer.innerHTML = '';
+      const manual = document.createElement('option');
+      manual.value = '';
+      manual.textContent = 'Manual IP/host';
+      addKnownServer.appendChild(manual);
+
+      HOMELAB_SERVERS.forEach((server) => {
+        const opt = document.createElement('option');
+        opt.value = server.ip;
+        opt.textContent = `${server.name} (${server.ip})`;
+        addKnownServer.appendChild(opt);
+      });
+
+      const match = HOMELAB_SERVERS.find((s) => s.ip === defaultIp);
+      addKnownServer.value = match ? match.ip : '';
+    }
+
+    async function populateServerChoices() {
+      const current = state.servers.find((s) => s.name === state.activeServer) || state.servers[0];
+      addServerSelect.innerHTML = '';
+      addBaseSelect.innerHTML = '';
+
+      state.servers.forEach((server) => {
+        const resolved = profileNetworkHost(server) || server.ip || 'unknown-host';
+        const text = `${displayName(server)} (${resolved})`;
+
+        const opt = document.createElement('option');
+        opt.value = server.name;
+        opt.textContent = text;
+        addServerSelect.appendChild(opt);
+
+        const baseOpt = document.createElement('option');
+        baseOpt.value = server.name;
+        baseOpt.textContent = text;
+        addBaseSelect.appendChild(baseOpt);
+      });
+
+      const newOpt = document.createElement('option');
+      newOpt.value = '__new__';
+      newOpt.textContent = '+ New server profile';
+      addServerSelect.appendChild(newOpt);
+
+      if (current) {
+        const host = profileNetworkHost(current) || current.ip || '127.0.0.1';
+        addServerSelect.value = current.name;
+        addBaseSelect.value = current.name;
+        addServerIp.value = host;
+        addLabel.value = displayName(current);
+        populateKnownServerOptions(host);
+        await refreshTmuxSessions(host);
+        const defaultSession = terminalSessionForServer(current);
+        fillTmuxOptions(defaultSession);
+        addNewSession.value = defaultSession === '1' ? 'job1' : `${defaultSession}-copy`;
+      }
+
+      updateServerChoiceVisibility();
+      updateSessionSourceVisibility();
+    }
+
+    async function openAddModal() {
+      if (!state.servers.length) return;
+      await populateServerChoices();
+      addModal.classList.add('open');
+    }
+
+    function closeAddModal() {
+      addModal.classList.remove('open');
+    }
+
+    function selectedTmuxSession() {
+      const source = document.querySelector('input[name="tmux-source"]:checked')?.value || 'existing';
+      const raw = source === 'existing' ? addExistingSession.value : addNewSession.value;
+      return sanitizeSessionName(raw);
+    }
+
+    async function submitAddModal() {
+      const selected = addServerSelect.value;
+      const isNew = selected === '__new__';
+      const session = selectedTmuxSession();
+      const label = (addLabel.value.trim() || 'session');
+
+      let baseProfile;
+      let targetHost;
+
+      if (isNew) {
+        targetHost = addServerIp.value.trim();
+        if (!targetHost) {
+          alert('Please set the server IP/host.');
+          return;
+        }
+        baseProfile = state.servers.find((s) => s.name === addBaseSelect.value) || state.servers[0];
+      } else {
+        baseProfile = state.servers.find((s) => s.name === selected);
+        if (!baseProfile) return;
+        targetHost = profileNetworkHost(baseProfile) || baseProfile.ip;
+      }
+
+      const newProfile = {
+        name: makeUniqueName(`${baseProfile.name}-${label}-${session}`),
+        display: label,
+        ip: targetHost,
+        panels: clonePanels(baseProfile),
+      };
+      setTerminalSession(newProfile, session);
+
+      state.servers.unshift(newProfile);
+      saveProfiles();
+      closeAddModal();
+      reloadServers(newProfile.name);
+    }
+
+    let dragServerName = null;
+
+    function clearDropMarkers() {
+      document.querySelectorAll('.session-row.drop-before, .session-row.drop-after').forEach((el) => {
+        el.classList.remove('drop-before', 'drop-after');
+      });
+      document.querySelectorAll('.session-row.dragging').forEach((el) => {
+        el.classList.remove('dragging');
+      });
+    }
+
+    function moveServerTo(dragName, targetName, after) {
+      if (!dragName || !targetName || dragName === targetName) return;
+      const fromIdx = state.servers.findIndex((s) => s.name === dragName);
+      const targetIdx = state.servers.findIndex((s) => s.name === targetName);
+      if (fromIdx < 0 || targetIdx < 0) return;
+
+      const [item] = state.servers.splice(fromIdx, 1);
+      let insertIdx = targetIdx;
+      if (after) insertIdx += 1;
+      if (fromIdx < targetIdx) insertIdx -= 1;
+      state.servers.splice(insertIdx, 0, item);
+      saveProfiles();
     }
 
     function renderSidebar() {
@@ -798,11 +784,10 @@
       state.servers.forEach((server) => {
         const row = document.createElement('div');
         row.className = 'session-row';
-        row.dataset.name = server.name;
 
         row.addEventListener('dragover', (e) => {
-          const sourceName = dragServerName || e.dataTransfer.getData('text/plain');
-          if (!sourceName || sourceName === server.name) return;
+          const source = dragServerName || e.dataTransfer.getData('text/plain');
+          if (!source || source === server.name) return;
           e.preventDefault();
           const rect = row.getBoundingClientRect();
           const after = e.clientY > rect.top + rect.height / 2;
@@ -814,23 +799,15 @@
           row.classList.remove('drop-before', 'drop-after');
         });
 
-        row.addEventListener('drop', async (e) => {
-          const sourceName = dragServerName || e.dataTransfer.getData('text/plain');
+        row.addEventListener('drop', (e) => {
+          const source = dragServerName || e.dataTransfer.getData('text/plain');
           clearDropMarkers();
-          if (!sourceName || sourceName === server.name) return;
+          if (!source || source === server.name) return;
           e.preventDefault();
-
           const rect = row.getBoundingClientRect();
           const after = e.clientY > rect.top + rect.height / 2;
-          moveServerTo(sourceName, server.name, after);
+          moveServerTo(source, server.name, after);
           renderSidebar();
-
-          try {
-            await persistOrder();
-          } catch (err) {
-            alert(`Could not reorder: ${err.message}`);
-            await reloadServers(state.activeServer);
-          }
         });
 
         const main = document.createElement('button');
@@ -843,17 +820,15 @@
 
         const text = document.createElement('div');
         text.className = 'session-text';
-
         const label = document.createElement('div');
         label.className = 'session-label';
         label.textContent = displayName(server);
-
         const meta = document.createElement('div');
         meta.className = 'session-meta';
         meta.textContent = profileNetworkHost(server) || server.ip || 'unknown-host';
-
         text.appendChild(label);
         text.appendChild(meta);
+
         main.appendChild(dot);
         main.appendChild(text);
 
@@ -911,7 +886,7 @@
 
       if (!server.panels || server.panels.length === 0) {
         delete state.activeTabByServer[server.name];
-        saveState();
+        saveUIState();
         activateFrame('');
         return;
       }
@@ -927,10 +902,10 @@
         btn.className = 'tab-btn';
         btn.textContent = panel.label;
         btn.onclick = () => {
-          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
           btn.classList.add('active');
           state.activeTabByServer[server.name] = panel.label;
-          saveState();
+          saveUIState();
           activateFrame(frameId);
         };
         tabs.appendChild(btn);
@@ -948,43 +923,52 @@
       }
 
       state.activeTabByServer[server.name] = selectedLabel;
-      saveState();
+      saveUIState();
       activateFrame(selectedFrameId);
     }
 
     async function init() {
-      loadState();
-      document.getElementById('add-session-btn').onclick = openAddModal;
+      loadUIState();
+      await loadProfilesFromBootstrap();
 
-      addServerSelect.addEventListener('change', () => {
+      document.getElementById('add-session-btn').onclick = openAddModal;
+      document.getElementById('add-cancel').onclick = closeAddModal;
+      document.getElementById('add-submit').onclick = submitAddModal;
+
+      addServerSelect.addEventListener('change', async () => {
         updateServerChoiceVisibility();
         if (addServerSelect.value !== '__new__') {
-          const server = state.servers.find(s => s.name === addServerSelect.value);
+          const server = state.servers.find((s) => s.name === addServerSelect.value);
           if (server) {
+            const host = profileNetworkHost(server) || server.ip || '127.0.0.1';
             addLabel.value = displayName(server);
-            addServerIp.value = profileNetworkHost(server) || server.ip || '';
-            populateKnownServerOptions(addServerIp.value);
-            const session = terminalSessionForServer(server);
-            fillTmuxSessionOptions(session);
+            addServerIp.value = host;
+            populateKnownServerOptions(host);
+            await refreshTmuxSessions(host);
+            fillTmuxOptions(terminalSessionForServer(server));
           }
         } else {
-          const baseServer = state.servers.find(s => s.name === addBaseSelect.value)
-            || state.servers.find(s => s.name === state.activeServer)
+          const baseServer = state.servers.find((s) => s.name === addBaseSelect.value)
+            || state.servers.find((s) => s.name === state.activeServer)
             || state.servers[0];
-          const suggestedIp = baseServer ? (profileNetworkHost(baseServer) || baseServer.ip || '') : '';
-          addServerIp.value = suggestedIp;
-          addLabel.value = addLabel.value || (baseServer ? displayName(baseServer) : '');
-          populateKnownServerOptions(suggestedIp);
+          const suggestedHost = baseServer ? (profileNetworkHost(baseServer) || baseServer.ip || '') : '';
+          addServerIp.value = suggestedHost;
+          if (!addLabel.value.trim()) addLabel.value = baseServer ? displayName(baseServer) : '';
+          populateKnownServerOptions(suggestedHost);
+          await refreshTmuxSessions(suggestedHost || '127.0.0.1');
+          fillTmuxOptions('1');
         }
         updateSessionSourceVisibility();
       });
 
-      addKnownServer.addEventListener('change', () => {
-        const selectedIp = addKnownServer.value;
-        if (selectedIp) {
-          addServerIp.value = selectedIp;
-          const match = HOMELAB_SERVERS.find((s) => s.ip === selectedIp);
+      addKnownServer.addEventListener('change', async () => {
+        if (addKnownServer.value) {
+          addServerIp.value = addKnownServer.value;
+          const match = HOMELAB_SERVERS.find((s) => s.ip === addKnownServer.value);
           if (match && !addLabel.value.trim()) addLabel.value = match.name;
+          await refreshTmuxSessions(addKnownServer.value);
+          fillTmuxOptions('1');
+          updateSessionSourceVisibility();
         }
       });
 
@@ -992,21 +976,15 @@
         radio.addEventListener('change', updateSessionSourceVisibility);
       });
 
-      document.getElementById('add-cancel').onclick = closeAddModal;
-      document.getElementById('add-submit').onclick = submitAddModal;
-
       addModal.addEventListener('click', (e) => {
         if (e.target === addModal) closeAddModal();
       });
 
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && addModal.classList.contains('open')) {
-          closeAddModal();
-        }
+        if (e.key === 'Escape' && addModal.classList.contains('open')) closeAddModal();
       });
 
-      await reloadServers(state.activeServer);
-      if (state.servers.length === 0) return;
+      reloadServers(state.activeServer);
     }
 
     init();
