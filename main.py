@@ -215,6 +215,39 @@ def _fetch_remote_tmux_sessions(host: str, port: int) -> dict[str, Any]:
         }
 
 
+def _fetch_remote_servers(host: str, port: int) -> dict[str, Any]:
+    cleaned_host = _normalize_host(host)
+    if _is_local_host(cleaned_host):
+        return {
+            "ok": True,
+            "servers": _apply_port_overrides(_load_servers()),
+            "host": socket.gethostname(),
+            "source": "local",
+        }
+
+    url = f"http://{cleaned_host}:{port}/servers"
+    req = UrlRequest(url, method="GET")
+    try:
+        with urlopen(req, timeout=2.5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload, list):
+                raise ValueError("invalid response shape")
+            return {
+                "ok": True,
+                "servers": payload,
+                "host": cleaned_host,
+                "source": "proxy",
+            }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "servers": [],
+            "host": cleaned_host,
+            "source": "proxy",
+            "error": str(exc),
+        }
+
+
 def _apply_port_overrides(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     env_map = {
         "Terminal": "TERM_PORT",
@@ -283,6 +316,7 @@ Runtime:
 - Health: GET {base}/servers
 - tmux sessions: GET {base}/tmux/sessions
 - tmux sessions by host: GET {base}/tmux/sessions/proxy?host=<ip>&port=7000
+- server panels by host: GET {base}/servers/proxy?host=<ip>&port=7000
 - kill tmux session: POST {base}/tmux/kill
 - Add/update tab: POST {base}/tab
 - Add/remove remote: POST {base}/remote
@@ -322,6 +356,11 @@ def tmux_sessions() -> dict[str, Any]:
 @app.get("/tmux/sessions/proxy")
 def tmux_sessions_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
     return _fetch_remote_tmux_sessions(host, port)
+
+
+@app.get("/servers/proxy")
+def servers_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
+    return _fetch_remote_servers(host, port)
 
 
 @app.post("/tmux/kill")

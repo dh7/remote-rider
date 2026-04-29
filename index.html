@@ -492,6 +492,32 @@
       return (source.panels || []).map((p) => ({ ...p }));
     }
 
+    function normalizePanels(panels) {
+      if (!Array.isArray(panels)) return [];
+      return panels
+        .map((p) => ({
+          label: String(p.label || ''),
+          port: Number(p.port || 0),
+          path: p.path ? String(p.path) : undefined,
+          protocol: p.protocol ? String(p.protocol) : undefined,
+        }))
+        .filter((p) => p.label && p.port > 0);
+    }
+
+    async function fetchServerPanels(host) {
+      const query = new URLSearchParams({ host: host || '127.0.0.1', port: '7000' }).toString();
+      try {
+        const payload = await fetch(`/servers/proxy?${query}`).then((r) => r.json());
+        if (!payload.ok || !Array.isArray(payload.servers) || !payload.servers.length) {
+          return null;
+        }
+        const first = payload.servers[0];
+        return normalizePanels(first.panels || []);
+      } catch (_) {
+        return null;
+      }
+    }
+
     function setTerminalSession(profile, session) {
       const terminal = (profile.panels || []).find((p) => p.label === 'Terminal');
       if (!terminal) return;
@@ -744,6 +770,12 @@
         ip: targetHost,
         panels: clonePanels(baseProfile),
       };
+
+      const remotePanels = await fetchServerPanels(targetHost);
+      if (remotePanels && remotePanels.length) {
+        newProfile.panels = remotePanels;
+      }
+
       setTerminalSession(newProfile, session);
 
       state.servers.unshift(newProfile);
