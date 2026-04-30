@@ -25,10 +25,12 @@ fi
 
 HOST="${TAILSCALE_IP:-127.0.0.1}"
 PORT="7000"
+ACTION="${1:-start}"
 
 export BIND_HOST="$HOST"
 export PUBLIC_HOST="$HOST"
 export HUB_PORT="$PORT"
+export RUN_MODE="control"
 
 stop_hub() {
   local file="$PID_DIR/hub.pid"
@@ -51,6 +53,11 @@ stop_hub() {
 }
 
 stop_hub
+
+if [[ "$ACTION" == "--stop" || "$ACTION" == "stop" ]]; then
+  echo "Control hub stopped"
+  exit 0
+fi
 
 "$VENV/uvicorn" main:app --host "$HOST" --port "$PORT" > "$LOG_DIR/hub.log" 2>&1 &
 echo "$!" > "$PID_DIR/hub.pid"

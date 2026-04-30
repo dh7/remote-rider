@@ -156,6 +156,7 @@ export TERM_PORT MONITOR_PORT LOGS_PORT FILES_PORT
 export HUB_PORT
 export BIND_HOST="$HOST"
 export PUBLIC_HOST="$HOST"
+export RUN_MODE="remote"
 
 if [[ -n "$TTYD_BIN" ]]; then
   "$TTYD_BIN" -W -a -i "$HOST" -p "$TERM_PORT" ./terminal-entry.sh > "$LOG_DIR/ttyd.log" 2>&1 &

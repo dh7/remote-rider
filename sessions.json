@@ -1,0 +1,37 @@
+[
+  {
+    "name": "netochka",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-ujc67aqq",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681
+      },
+      {
+        "id": "tab-ba6b8zde",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8002
+      },
+      {
+        "id": "tab-xb479kn6",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8003
+      },
+      {
+        "id": "tab-cvc2q50l",
+        "label": "Files",
+        "service": "files",
+        "port": 8081,
+        "path": "/files"
+      }
+    ],
+    "display": "netochka"
+  }
+]

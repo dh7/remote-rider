@@ -78,6 +78,7 @@ TERM_PORT="${TERM_PORT:-7681}"
 MONITOR_PORT="${MONITOR_PORT:-8001}"
 LOGS_PORT="${LOGS_PORT:-8002}"
 FILES_PORT="${FILES_PORT:-8080}"
+RUN_MODE="${RUN_MODE:-all}"
 
 port_busy() {
   python3 - "$BIND_HOST" "$1" <<'PY'
@@ -143,6 +144,7 @@ FILES_PORT="$(choose_port files "$FILES_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOG
 HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT" "$FILES_PORT")"
 
 export TERM_PORT MONITOR_PORT LOGS_PORT FILES_PORT
+export RUN_MODE
 
 TTYD_BIN="${TTYD_BIN:-}"
 if [[ -z "$TTYD_BIN" ]]; then

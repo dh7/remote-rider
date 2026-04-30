@@ -319,9 +319,73 @@
       gap: 0.5rem;
       justify-content: flex-end;
     }
+    .section-card {
+      border: 1px solid #303a58;
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      background: #0f1424;
+    }
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.55rem;
+    }
+    .section-head h3 {
+      font-size: 0.85rem;
+      color: #d7defa;
+    }
+    .service-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .service-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) auto auto;
+      gap: 0.55rem;
+      align-items: center;
+      border: 1px solid #2b344f;
+      border-radius: 0.4rem;
+      padding: 0.5rem;
+      background: #131a2d;
+    }
+    .service-main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+    .service-title {
+      font-size: 0.8rem;
+      color: #eff3ff;
+    }
+    .service-meta {
+      font-size: 0.7rem;
+      color: #97a4ce;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .service-state {
+      font-size: 0.72rem;
+      padding: 0.18rem 0.4rem;
+      border-radius: 999px;
+      border: 1px solid #394160;
+      color: #d6def7;
+      justify-self: start;
+    }
+    .service-state.up { background: #173323; border-color: #2f7a4f; color: #bce8ca; }
+    .service-state.down { background: #402126; border-color: #8d3945; color: #ffc0c7; }
+    .service-buttons {
+      display: flex;
+      gap: 0.35rem;
+    }
     @media (max-width: 900px) {
       #sidebar { width: 220px; }
       .panel-row { grid-template-columns: 1fr 1fr; }
+      .service-row { grid-template-columns: 1fr; }
     }
     .muted-note { font-size: 0.72rem; color: #8f97b9; }
     .hidden { display: none !important; }
@@ -333,7 +397,7 @@
       <div id="sidebar-title">Sessions</div>
       <button id="add-session-btn" title="Add session">+</button>
     </div>
-    <div id="server-list"></div>
+    <div id="session-list"></div>
   </div>
   <div id="main">
     <div id="tabs"></div>
@@ -345,13 +409,13 @@
       <h2>Add Session</h2>
 
       <div class="form-row">
-        <label for="add-server-select">Server Profile</label>
+        <label for="add-server-select">Target Machine or Session</label>
         <select id="add-server-select"></select>
       </div>
 
       <div id="add-new-server-wrap" class="inline-row hidden">
         <div class="form-row">
-          <label for="add-server-ip">New Server IP/Host</label>
+          <label for="add-server-ip">Machine IP/Host</label>
           <input id="add-server-ip" type="text" placeholder="100.x.x.x or hostname">
         </div>
       </div>
@@ -367,7 +431,7 @@
       </div>
 
       <div id="add-source-profile-wrap" class="form-row">
-        <label for="add-source-profile">Source Profile</label>
+        <label for="add-source-profile">Copy Tabs From Session</label>
         <select id="add-source-profile"></select>
       </div>
 
@@ -377,7 +441,7 @@
       </div>
 
       <div class="form-row">
-        <label for="add-label">Session Label (left menu)</label>
+        <label for="add-label">Session Label</label>
         <input id="add-label" type="text" placeholder="netochka">
       </div>
 
@@ -412,10 +476,23 @@
     <div id="panel-card">
       <h2>Session Setup</h2>
       <div id="panel-target" class="muted-note"></div>
-      <div id="panel-list"></div>
+      <div class="section-card">
+        <div class="section-head">
+          <h3>Session Tabs</h3>
+        </div>
+        <div id="panel-list"></div>
+      </div>
+      <div class="section-card">
+        <div class="section-head">
+          <h3>Remote Services</h3>
+          <button id="panel-refresh-services" class="secondary-btn" type="button">Refresh</button>
+        </div>
+        <div id="panel-services-note" class="muted-note"></div>
+        <div id="panel-services" class="service-list"></div>
+      </div>
       <div id="panel-actions-row">
-        <button id="panel-add" class="secondary-btn" type="button">Add Panel</button>
-        <button id="panel-sync" class="secondary-btn" type="button">Sync From Remote</button>
+        <button id="panel-add" class="secondary-btn" type="button">Add Custom Tab</button>
+        <button id="panel-sync" class="secondary-btn" type="button">Sync Tabs From Remote</button>
         <button id="panel-launch-files" class="secondary-btn" type="button">Launch Files Service</button>
       </div>
       <div id="panel-actions">
@@ -439,12 +516,16 @@
     ];
 
     const state = {
-      servers: [],
-      activeServer: null,
-      activeTabByServer: {},
+      sessions: [],
+      activeSession: null,
+      activeTabBySession: {},
       tmuxSessions: [],
       templates: [],
       panelEditor: null,
+      discoveredServices: [],
+      serviceSnapshotByHost: {},
+      controlSessionsAvailable: false,
+      controlSessionsSignature: '',
     };
 
     const addModal = document.getElementById('add-modal');
@@ -467,6 +548,9 @@
     const panelModal = document.getElementById('panel-modal');
     const panelTarget = document.getElementById('panel-target');
     const panelList = document.getElementById('panel-list');
+    const panelServices = document.getElementById('panel-services');
+    const panelServicesNote = document.getElementById('panel-services-note');
+    let saveSessionsTimer = null;
 
     function loadUIState() {
       try {
@@ -474,9 +558,9 @@
         if (!raw) return;
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
-          if (typeof parsed.activeServer === 'string') state.activeServer = parsed.activeServer;
-          if (parsed.activeTabByServer && typeof parsed.activeTabByServer === 'object') {
-            state.activeTabByServer = parsed.activeTabByServer;
+          if (typeof parsed.activeSession === 'string') state.activeSession = parsed.activeSession;
+          if (parsed.activeTabBySession && typeof parsed.activeTabBySession === 'object') {
+            state.activeTabBySession = parsed.activeTabBySession;
           }
         }
       } catch (_) {}
@@ -485,52 +569,181 @@
     function saveUIState() {
       try {
         localStorage.setItem(UI_KEY, JSON.stringify({
-          activeServer: state.activeServer,
-          activeTabByServer: state.activeTabByServer,
+          activeSession: state.activeSession,
+          activeTabBySession: state.activeTabBySession,
         }));
       } catch (_) {}
     }
 
     function saveProfiles() {
       try {
-        localStorage.setItem(PROFILES_KEY, JSON.stringify(state.servers));
+        localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
+      } catch (_) {}
+      queueSessionSaveToControl();
+    }
+
+    async function loadSessionsFromControl() {
+      try {
+        const response = await fetch('/sessions');
+        if (!response.ok) {
+          state.controlSessionsAvailable = false;
+          return null;
+        }
+        const payload = await response.json();
+        if (!Array.isArray(payload.sessions)) {
+          state.controlSessionsAvailable = false;
+          return [];
+        }
+        state.controlSessionsAvailable = true;
+        return payload.sessions.map(normalizeProfile).filter(Boolean);
+      } catch (_) {
+        state.controlSessionsAvailable = false;
+        return null;
+      }
+    }
+
+    async function loadControlContext() {
+      try {
+        const response = await fetch('/control/context');
+        if (!response.ok) return null;
+        state.controlSessionsAvailable = true;
+        const payload = await response.json();
+        return {
+          machines: Array.isArray(payload.machines) ? payload.machines.map(normalizeProfile).filter(Boolean) : [],
+          sessions: Array.isArray(payload.sessions) ? payload.sessions.map(normalizeProfile).filter(Boolean) : [],
+          templates: Array.isArray(payload.session_templates)
+            ? payload.session_templates.map((item) => ({
+                id: String(item.id || ''),
+                label: String(item.label || item.id || 'Template'),
+                panels: normalizePanels(item.panels || []),
+              })).filter((item) => item.id && item.panels.length)
+            : [],
+        };
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function flushSessionsToControl() {
+      if (!state.controlSessionsAvailable) return;
+      try {
+        await fetch('/sessions', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessions: state.sessions }),
+        });
+        state.controlSessionsSignature = JSON.stringify(state.sessions);
       } catch (_) {}
     }
 
-    function normalizeProfile(raw) {
+    function queueSessionSaveToControl() {
+      if (!state.controlSessionsAvailable) return;
+      if (saveSessionsTimer) clearTimeout(saveSessionsTimer);
+      saveSessionsTimer = setTimeout(() => {
+        saveSessionsTimer = null;
+        flushSessionsToControl();
+      }, 150);
+    }
+
+    async function refreshSessionsFromControlIfChanged() {
+      if (!state.controlSessionsAvailable) return;
+      const sessions = await loadSessionsFromControl();
+      if (!sessions) return;
+      const signature = JSON.stringify(sessions);
+      if (signature === state.controlSessionsSignature) return;
+      state.sessions = sessions;
+      state.controlSessionsSignature = signature;
+      try {
+        localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
+      } catch (_) {}
+      await reloadSessions(state.activeSession);
+    }
+
+    function serviceNameForLabel(label) {
+      const key = String(label || '').trim().toLowerCase();
+      if (key === 'terminal') return 'terminal';
+      if (key === 'monitor') return 'monitor';
+      if (key === 'logs') return 'logs';
+      if (key === 'files') return 'files';
+      if (key === 'hub') return 'hub';
+      return '';
+    }
+
+    function normalizeTab(raw) {
       if (!raw || typeof raw !== 'object') return null;
-      if (!raw.name || !Array.isArray(raw.panels)) return null;
+      const label = String(raw.label || '').trim();
+      const port = Number(raw.port || 0);
+      const service = raw.service ? String(raw.service).trim() : serviceNameForLabel(label);
+      if (!label) return null;
+      return {
+        id: raw.id ? String(raw.id) : `tab-${Math.random().toString(36).slice(2, 10)}`,
+        label,
+        service: service || undefined,
+        port: port > 0 ? port : undefined,
+        path: raw.path ? String(raw.path) : undefined,
+        protocol: raw.protocol ? String(raw.protocol) : undefined,
+      };
+    }
+
+    function normalizeProfile(raw) {
+      if (!raw || typeof raw !== 'object' || !raw.name) return null;
+      const rawTabs = Array.isArray(raw.tabs) ? raw.tabs : Array.isArray(raw.panels) ? raw.panels : [];
+      const tabs = rawTabs.map(normalizeTab).filter(Boolean);
+      const host = raw.machine?.host ? String(raw.machine.host) : (raw.ip ? String(raw.ip) : '127.0.0.1');
+      const machineName = raw.machine?.name ? String(raw.machine.name) : (raw.machineName ? String(raw.machineName) : String(raw.name));
       return {
         name: String(raw.name),
         display: raw.display ? String(raw.display) : undefined,
-        ip: raw.ip ? String(raw.ip) : '127.0.0.1',
-        panels: raw.panels.map((p) => ({
-          label: String(p.label || ''),
-          port: Number(p.port || 0),
-          path: p.path ? String(p.path) : undefined,
-          protocol: p.protocol ? String(p.protocol) : undefined,
-        })).filter((p) => p.label && p.port),
+        machine: {
+          name: machineName,
+          host,
+        },
+        ip: host,
+        tabs,
+        panels: tabs,
       };
     }
 
     async function loadProfilesFromBootstrap() {
-      const bootstrap = await fetch('/servers').then((r) => r.json()).catch(() => []);
-      const fromBootstrap = Array.isArray(bootstrap)
-        ? bootstrap.map(normalizeProfile).filter(Boolean)
-        : [];
+      const controlContext = await loadControlContext();
+      if (controlContext && controlContext.templates.length) {
+        state.templates = controlContext.templates;
+      }
+      const normalizedBootstrap = controlContext
+        ? controlContext.machines
+        : (await fetch('/machines').then((r) => r.json()).catch(() => []))
+            .map(normalizeProfile)
+            .filter(Boolean);
+      const controlSessions = controlContext ? controlContext.sessions : await loadSessionsFromControl();
+      if (controlSessions && controlSessions.length) {
+        state.sessions = controlSessions;
+        state.controlSessionsSignature = JSON.stringify(state.sessions);
+        try {
+          localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
+        } catch (_) {}
+        return;
+      }
 
       try {
         const raw = localStorage.getItem(PROFILES_KEY);
         if (!raw) {
-          state.servers = fromBootstrap;
+          state.sessions = normalizedBootstrap;
           saveProfiles();
           return;
         }
         const parsed = JSON.parse(raw);
         const localProfiles = Array.isArray(parsed) ? parsed.map(normalizeProfile).filter(Boolean) : [];
-        state.servers = localProfiles.length ? localProfiles : fromBootstrap;
+        state.sessions = localProfiles.length ? localProfiles : normalizedBootstrap;
+        state.controlSessionsSignature = JSON.stringify(state.sessions);
+        if (controlSessions && controlSessions.length === 0 && state.sessions.length) {
+          queueSessionSaveToControl();
+        }
       } catch (_) {
-        state.servers = fromBootstrap;
+        state.sessions = normalizedBootstrap;
+        state.controlSessionsSignature = JSON.stringify(state.sessions);
+        if (controlSessions && controlSessions.length === 0 && state.sessions.length) {
+          queueSessionSaveToControl();
+        }
       }
     }
 
@@ -540,7 +753,7 @@
 
     function makeUniqueName(base) {
       const cleaned = String(base || 'session').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
-      const names = new Set(state.servers.map((s) => s.name));
+      const names = new Set(state.sessions.map((s) => s.name));
       if (!names.has(cleaned)) return cleaned;
       let i = 2;
       while (names.has(`${cleaned}-${i}`)) i += 1;
@@ -551,8 +764,9 @@
       return server.display || server.name;
     }
 
-    function frameIdFor(server, panel) {
-      return `frame-${slug(server.name)}-${slug(panel.label)}-${panel.port}`;
+    function frameIdFor(server, tab, endpoint) {
+      const port = endpoint?.port || tab.port || 'na';
+      return `frame-${slug(server.name)}-${slug(tab.id || tab.label)}-${port}`;
     }
 
     function resolveHost(host) {
@@ -578,15 +792,18 @@
       return '';
     }
 
-    function profileNetworkHost(server) {
-      const mapped = homelabIpForName(displayName(server)) || homelabIpForName(server.name);
-      if (isLocalHost(server.ip) && mapped) return mapped;
-      return server.ip || mapped || '';
+    function sessionMachineHost(server) {
+      const host = server.machine?.host || server.ip || '';
+      const mapped = homelabIpForName(server.machine?.name) || homelabIpForName(displayName(server)) || homelabIpForName(server.name);
+      if (isLocalHost(host) && mapped) return mapped;
+      return host || mapped || '';
     }
 
-    async function probePanelStatus(server, panel) {
-      const host = profileNetworkHost(server) || server.ip || '127.0.0.1';
-      const query = new URLSearchParams({ host, port: String(panel.port), timeout_ms: '650' }).toString();
+    async function probePanelStatus(server, tab, endpoint) {
+      const host = endpoint?.host || sessionMachineHost(server) || server.ip || '127.0.0.1';
+      const port = endpoint?.port || tab.port;
+      if (!port) return { up: false, latency: 0, error: 'missing port', host };
+      const query = new URLSearchParams({ host, port: String(port), timeout_ms: '650' }).toString();
       try {
         const payload = await fetch(`/panel/status?${query}`).then((r) => r.json());
         return {
@@ -600,16 +817,16 @@
       }
     }
 
-    function colorForServer(server) {
-      const key = `${profileNetworkHost(server) || server.ip || ''}`;
+    function colorForSession(server) {
+      const key = `${sessionMachineHost(server) || server.ip || ''}`;
       let hash = 0;
       for (let i = 0; i < key.length; i += 1) hash = ((hash << 5) - hash) + key.charCodeAt(i);
       const hue = Math.abs(hash) % 360;
       return `hsl(${hue} 65% 55%)`;
     }
 
-    function terminalSessionForServer(server) {
-      const terminal = (server.panels || []).find((p) => p.label === 'Terminal');
+    function terminalSessionForSession(server) {
+      const terminal = (server.tabs || []).find((p) => p.label === 'Terminal' || p.service === 'terminal');
       if (!terminal || !terminal.path) return '1';
       const idx = terminal.path.indexOf('?');
       if (idx < 0) return '1';
@@ -623,19 +840,12 @@
     }
 
     function clonePanels(source) {
-      return (source.panels || []).map((p) => ({ ...p }));
+      return (source.tabs || source.panels || []).map((p) => ({ ...p }));
     }
 
     function normalizePanels(panels) {
       if (!Array.isArray(panels)) return [];
-      return panels
-        .map((p) => ({
-          label: String(p.label || ''),
-          port: Number(p.port || 0),
-          path: p.path ? String(p.path) : undefined,
-          protocol: p.protocol ? String(p.protocol) : undefined,
-        }))
-        .filter((p) => p.label && p.port > 0);
+      return panels.map(normalizeTab).filter(Boolean);
     }
 
     function defaultTemplates() {
@@ -671,10 +881,10 @@
       }
     }
 
-    async function fetchServerPanels(host) {
+    async function fetchMachinePanels(host) {
       const query = new URLSearchParams({ host: host || '127.0.0.1', port: '7000' }).toString();
       try {
-        const payload = await fetch(`/servers/proxy?${query}`).then((r) => r.json());
+        const payload = await fetch(`/machines/proxy?${query}`).then((r) => r.json());
         if (!payload.ok || !Array.isArray(payload.servers) || !payload.servers.length) {
           return null;
         }
@@ -685,8 +895,40 @@
       }
     }
 
+    async function fetchRemoteServices(host) {
+      const query = new URLSearchParams({ host: host || '127.0.0.1', port: '7000' }).toString();
+      try {
+        const payload = await fetch(`/services/proxy?${query}`).then((r) => r.json());
+        const services = Array.isArray(payload.services)
+          ? payload.services.map((service) => ({
+              name: String(service.name || ''),
+              label: String(service.label || service.name || 'Service'),
+              port: Number(service.port || 0),
+              path: service.path ? String(service.path) : '/',
+              protocol: service.protocol ? String(service.protocol) : 'http',
+              up: Boolean(service.up),
+              enabled: service.enabled !== false,
+              launchable: Boolean(service.launchable),
+              latency: Number(service.latency_ms || 0),
+              error: service.error ? String(service.error) : '',
+            })).filter((service) => service.name && service.port > 0)
+          : [];
+        return {
+          host: String(payload.host || host || 'unknown'),
+          error: payload.error ? String(payload.error) : '',
+          services,
+        };
+      } catch (err) {
+        return {
+          host: host || 'unknown',
+          error: String(err.message || err),
+          services: [],
+        };
+      }
+    }
+
     function setTerminalSession(profile, session) {
-      const terminal = (profile.panels || []).find((p) => p.label === 'Terminal');
+      const terminal = (profile.tabs || profile.panels || []).find((p) => p.label === 'Terminal' || p.service === 'terminal');
       if (!terminal) return;
       if (session === '1') {
         delete terminal.path;
@@ -695,19 +937,52 @@
       }
     }
 
-    function ensureFrame(server, panel) {
+    function serviceSnapshotForServer(server) {
+      const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
+      return state.serviceSnapshotByHost[host] || null;
+    }
+
+    function resolveTabEndpoint(server, tab) {
+      const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
+      const snapshot = serviceSnapshotForServer(server);
+      if (tab.service && snapshot && Array.isArray(snapshot.services)) {
+        const match = snapshot.services.find((service) => service.name === tab.service || service.label === tab.label);
+        if (match) {
+          return {
+            host,
+            port: match.port,
+            path: tab.path || match.path || '/',
+            protocol: tab.protocol || match.protocol || 'http',
+            source: 'live-service',
+          };
+        }
+      }
+      if (tab.port) {
+        return {
+          host,
+          port: tab.port,
+          path: tab.path || '/',
+          protocol: tab.protocol || window.location.protocol.replace(':', ''),
+          source: 'saved-fallback',
+        };
+      }
+      return null;
+    }
+
+    function ensureFrame(server, tab, endpoint) {
       const framesEl = document.getElementById('frames');
-      const id = frameIdFor(server, panel);
+      const id = frameIdFor(server, tab, endpoint);
       const existing = document.getElementById(id);
       if (existing) return existing;
 
-      const path = panel.path || '/';
-      const protocol = panel.protocol || window.location.protocol.replace(':', '');
-      const host = resolveHost(server.ip);
+      const path = endpoint?.path || tab.path || '/';
+      const protocol = endpoint?.protocol || tab.protocol || window.location.protocol.replace(':', '');
+      const host = resolveHost(endpoint?.host || sessionMachineHost(server));
+      const port = endpoint?.port || tab.port;
 
       const iframe = document.createElement('iframe');
       iframe.id = id;
-      iframe.src = `${protocol}://${host}:${panel.port}${path}`;
+      iframe.src = port ? `${protocol}://${host}:${port}${path}` : 'about:blank';
       framesEl.appendChild(iframe);
       return iframe;
     }
@@ -718,36 +993,36 @@
       if (frame) frame.classList.add('active');
     }
 
-    function selectServer(server) {
-      state.activeServer = server.name;
+    async function selectSession(server) {
+      state.activeSession = server.name;
       saveUIState();
       renderSidebar();
-      renderTabs(server);
+      await renderTabs(server);
     }
 
-    function reloadServers(preferredName) {
+    async function reloadSessions(preferredName) {
       renderSidebar();
-      if (!state.servers.length) {
+      if (!state.sessions.length) {
         activateFrame('');
         return;
       }
-      const target = state.servers.find((s) => s.name === preferredName)
-        || state.servers.find((s) => s.name === state.activeServer)
-        || state.servers[0];
-      selectServer(target);
+      const target = state.sessions.find((s) => s.name === preferredName)
+        || state.sessions.find((s) => s.name === state.activeSession)
+        || state.sessions[0];
+      await selectSession(target);
     }
 
     async function deleteSession(server) {
       if (!confirm(`Delete session "${displayName(server)}"?`)) return;
-      state.servers = state.servers.filter((s) => s.name !== server.name);
+      state.sessions = state.sessions.filter((s) => s.name !== server.name);
       saveProfiles();
-      const fallback = state.activeServer === server.name ? null : state.activeServer;
-      reloadServers(fallback);
+      const fallback = state.activeSession === server.name ? null : state.activeSession;
+      reloadSessions(fallback);
     }
 
     async function deleteSessionAndKill(server) {
-      const session = terminalSessionForServer(server);
-      const host = profileNetworkHost(server) || server.ip;
+      const session = terminalSessionForSession(server);
+      const host = sessionMachineHost(server) || server.ip;
       const ok = confirm(
         `Delete profile "${displayName(server)}" and try to kill tmux session "${session}" on ${host}?\n\n` +
         `This can stop running terminal tasks.`
@@ -769,10 +1044,10 @@
         alert(`tmux kill request failed: ${err.message}`);
       }
 
-      state.servers = state.servers.filter((s) => s.name !== server.name);
+      state.sessions = state.sessions.filter((s) => s.name !== server.name);
       saveProfiles();
-      const fallback = state.activeServer === server.name ? null : state.activeServer;
-      reloadServers(fallback);
+      const fallback = state.activeSession === server.name ? null : state.activeSession;
+      reloadSessions(fallback);
     }
 
     async function renameSession(server) {
@@ -789,6 +1064,7 @@
       rows.forEach((panel, idx) => {
         const row = document.createElement('div');
         row.className = 'panel-row';
+        row.title = panel.service ? `Service-backed tab: ${panel.service}` : 'Custom tab';
 
         const label = document.createElement('input');
         label.type = 'text';
@@ -840,57 +1116,149 @@
       });
     }
 
-    function openPanelModal(server) {
+    function applyDiscoveredServiceToEditor(service) {
+      if (!state.panelEditor) return;
+      const label = service.label || service.name;
+      const existing = state.panelEditor.panels.find((panel) => panel.label === label);
+      const nextPanel = {
+        label,
+        service: service.name || undefined,
+        port: service.port,
+        path: service.path || '/',
+        protocol: service.protocol || 'http',
+      };
+
+      if (existing) {
+        existing.service = nextPanel.service;
+        existing.port = nextPanel.port;
+        existing.path = nextPanel.path;
+        existing.protocol = nextPanel.protocol;
+      } else {
+        state.panelEditor.panels.push(nextPanel);
+      }
+
+      renderPanelEditorRows();
+    }
+
+    function renderDiscoveredServices() {
+      panelServices.innerHTML = '';
+
+      if (!state.discoveredServices.length) {
+        const empty = document.createElement('div');
+        empty.className = 'muted-note';
+        empty.textContent = 'No services discovered yet.';
+        panelServices.appendChild(empty);
+        return;
+      }
+
+      state.discoveredServices.forEach((service) => {
+        const row = document.createElement('div');
+        row.className = 'service-row';
+
+        const main = document.createElement('div');
+        main.className = 'service-main';
+
+        const title = document.createElement('div');
+        title.className = 'service-title';
+        title.textContent = `${service.label} (${service.name}:${service.port})`;
+
+        const meta = document.createElement('div');
+        meta.className = 'service-meta';
+        meta.textContent = `${service.protocol}://${service.host}:${service.port}${service.path || '/'}`;
+
+        main.appendChild(title);
+        main.appendChild(meta);
+
+        const stateBadge = document.createElement('div');
+        stateBadge.className = `service-state ${service.up ? 'up' : 'down'}`;
+        stateBadge.textContent = service.up ? `up ${service.latency}ms` : 'down';
+        if (service.error) stateBadge.title = service.error;
+
+        const buttons = document.createElement('div');
+        buttons.className = 'service-buttons';
+
+        const useBtn = document.createElement('button');
+        useBtn.className = 'secondary-btn';
+        useBtn.type = 'button';
+        useBtn.textContent = 'Use as Tab';
+        useBtn.onclick = () => applyDiscoveredServiceToEditor(service);
+
+        buttons.appendChild(useBtn);
+        if (service.launchable && service.label === 'Files') {
+          const launchBtn = document.createElement('button');
+          launchBtn.className = 'secondary-btn';
+          launchBtn.type = 'button';
+          launchBtn.textContent = 'Launch New';
+          launchBtn.onclick = () => startFilesServiceForEditor(null);
+          buttons.appendChild(launchBtn);
+        }
+        row.appendChild(main);
+        row.appendChild(stateBadge);
+        row.appendChild(buttons);
+        panelServices.appendChild(row);
+      });
+    }
+
+    async function refreshDiscoveredServices() {
+      if (!state.panelEditor) return;
+      const server = state.sessions.find((s) => s.name === state.panelEditor.name);
+      if (!server) return;
+
+      const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
+      panelServicesNote.textContent = `Discovering services on ${host}...`;
+      const result = await fetchRemoteServices(host);
+      state.serviceSnapshotByHost[host] = result;
+      state.discoveredServices = result.services.map((service) => ({ ...service, host: result.host || host }));
+      panelServicesNote.textContent = result.error
+        ? `Service discovery failed on ${result.host}: ${result.error}`
+        : `Discovered ${state.discoveredServices.length} service${state.discoveredServices.length === 1 ? '' : 's'} on ${result.host}.`;
+      renderDiscoveredServices();
+    }
+
+    async function openPanelModal(server) {
       state.panelEditor = {
         name: server.name,
         panels: normalizePanels(clonePanels(server)),
       };
-      panelTarget.textContent = `${displayName(server)} (${profileNetworkHost(server) || server.ip || 'unknown-host'})`;
+      state.discoveredServices = [];
+      panelTarget.textContent = `${displayName(server)} (${sessionMachineHost(server) || server.ip || 'unknown-host'})`;
       renderPanelEditorRows();
+      renderDiscoveredServices();
       panelModal.classList.add('open');
+      await refreshDiscoveredServices();
     }
 
     function closePanelModal() {
       panelModal.classList.remove('open');
       state.panelEditor = null;
+      state.discoveredServices = [];
+      panelServices.innerHTML = '';
+      panelServicesNote.textContent = '';
     }
 
     async function syncPanelEditorFromRemote() {
       if (!state.panelEditor) return;
-      const server = state.servers.find((s) => s.name === state.panelEditor.name);
+      const server = state.sessions.find((s) => s.name === state.panelEditor.name);
       if (!server) return;
-      const host = profileNetworkHost(server) || server.ip;
-      const remotePanels = await fetchServerPanels(host);
+      const host = sessionMachineHost(server) || server.ip;
+      const remotePanels = await fetchMachinePanels(host);
       if (!remotePanels || !remotePanels.length) {
         alert(`Could not fetch remote panels from ${host}.`);
         return;
       }
-      const session = terminalSessionForServer(server);
+      const session = terminalSessionForSession(server);
       state.panelEditor.panels = normalizePanels(remotePanels);
-      const tempProfile = { panels: state.panelEditor.panels };
+      const tempProfile = { tabs: state.panelEditor.panels };
       setTerminalSession(tempProfile, session);
       renderPanelEditorRows();
     }
 
-    async function launchFilesServiceFromPanelEditor() {
+    async function startFilesServiceForEditor(requestedPort = null) {
       if (!state.panelEditor) return;
-      const server = state.servers.find((s) => s.name === state.panelEditor.name);
+      const server = state.sessions.find((s) => s.name === state.panelEditor.name);
       if (!server) return;
 
-      const host = profileNetworkHost(server) || server.ip || '127.0.0.1';
-      const rawPort = prompt('Start fileserver on port (blank = auto pick):', '');
-      if (rawPort === null) return;
-
-      let requestedPort = null;
-      if (rawPort.trim()) {
-        const parsed = Number(rawPort.trim());
-        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-          alert('Invalid port. Use a number between 1 and 65535.');
-          return;
-        }
-        requestedPort = parsed;
-      }
-
+      const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
       const payload = {
         host,
         hub_port: 7000,
@@ -917,25 +1285,45 @@
       const filesPort = Number(res.service.port);
       const filesPanel = state.panelEditor.panels.find((p) => p.label === 'Files');
       if (filesPanel) {
+        filesPanel.service = 'files';
         filesPanel.port = filesPort;
         filesPanel.path = '/files';
         filesPanel.protocol = 'http';
       } else {
-        state.panelEditor.panels.push({ label: 'Files', port: filesPort, path: '/files', protocol: 'http' });
+        state.panelEditor.panels.push({ label: 'Files', service: 'files', port: filesPort, path: '/files', protocol: 'http' });
       }
 
       renderPanelEditorRows();
+      await refreshDiscoveredServices();
       alert(`Files service started on ${host}:${filesPort} and wired into this session.`);
+    }
+
+    async function launchFilesServiceFromPanelEditor() {
+      const rawPort = prompt('Start fileserver on port (blank = auto pick):', '');
+      if (rawPort === null) return;
+
+      let requestedPort = null;
+      if (rawPort.trim()) {
+        const parsed = Number(rawPort.trim());
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+          alert('Invalid port. Use a number between 1 and 65535.');
+          return;
+        }
+        requestedPort = parsed;
+      }
+
+      await startFilesServiceForEditor(requestedPort);
     }
 
     function savePanelEditor() {
       if (!state.panelEditor) return;
-      const server = state.servers.find((s) => s.name === state.panelEditor.name);
+      const server = state.sessions.find((s) => s.name === state.panelEditor.name);
       if (!server) return;
-      server.panels = normalizePanels(state.panelEditor.panels);
+      server.tabs = normalizePanels(state.panelEditor.panels);
+      server.panels = server.tabs;
       saveProfiles();
       closePanelModal();
-      reloadServers(server.name);
+      reloadSessions(server.name);
     }
 
     async function refreshTmuxSessions(host) {
@@ -1013,7 +1401,7 @@
     }
 
     async function populateServerChoices() {
-      const current = state.servers.find((s) => s.name === state.activeServer) || state.servers[0];
+      const current = state.sessions.find((s) => s.name === state.activeSession) || state.sessions[0];
       addServerSelect.innerHTML = '';
       addTemplateSelect.innerHTML = '';
       addPanelSource.innerHTML = '';
@@ -1024,10 +1412,12 @@
       sourceTemplateOpt.textContent = 'Template';
       addPanelSource.appendChild(sourceTemplateOpt);
 
-      const sourceProfileOpt = document.createElement('option');
-      sourceProfileOpt.value = 'profile';
-      sourceProfileOpt.textContent = 'Existing server profile';
-      addPanelSource.appendChild(sourceProfileOpt);
+      if (state.sessions.length) {
+        const sourceProfileOpt = document.createElement('option');
+        sourceProfileOpt.value = 'profile';
+        sourceProfileOpt.textContent = 'Existing session';
+        addPanelSource.appendChild(sourceProfileOpt);
+      }
 
       state.templates.forEach((tpl) => {
         const opt = document.createElement('option');
@@ -1036,8 +1426,8 @@
         addTemplateSelect.appendChild(opt);
       });
 
-      state.servers.forEach((server) => {
-        const resolved = profileNetworkHost(server) || server.ip || 'unknown-host';
+      state.sessions.forEach((server) => {
+        const resolved = sessionMachineHost(server) || server.ip || 'unknown-host';
         const text = `${displayName(server)} (${resolved})`;
 
         const opt = document.createElement('option');
@@ -1054,24 +1444,34 @@
 
       const newOpt = document.createElement('option');
       newOpt.value = '__new__';
-      newOpt.textContent = '+ New server profile';
+      newOpt.textContent = '+ New machine / session';
       addServerSelect.appendChild(newOpt);
 
       if (current) {
-        const host = profileNetworkHost(current) || current.ip || '127.0.0.1';
+        const host = sessionMachineHost(current) || current.ip || '127.0.0.1';
         addServerSelect.value = current.name;
         addServerIp.value = host;
         addLabel.value = displayName(current);
         addSourceProfile.value = current.name;
         populateKnownServerOptions(host);
         await refreshTmuxSessions(host);
-        const defaultSession = terminalSessionForServer(current);
+        const defaultSession = terminalSessionForSession(current);
         fillTmuxOptions(defaultSession);
         addNewSession.value = defaultSession === '1' ? 'job1' : `${defaultSession}-copy`;
+      }
+      if (!current) {
+        addServerSelect.value = '__new__';
+        addServerIp.value = '';
+        addLabel.value = '';
+        populateKnownServerOptions('');
+        await refreshTmuxSessions('127.0.0.1');
+        fillTmuxOptions('1');
+        addNewSession.value = 'job1';
       }
 
       if (addTemplateSelect.options.length) addTemplateSelect.value = addTemplateSelect.options[0].value;
       addPanelSource.value = 'profile';
+      if (!state.sessions.length) addPanelSource.value = 'template';
       updatePanelSourceVisibility();
 
       updateServerChoiceVisibility();
@@ -1079,7 +1479,6 @@
     }
 
     async function openAddModal() {
-      if (!state.servers.length) return;
       await populateServerChoices();
       addModal.classList.add('open');
     }
@@ -1102,7 +1501,7 @@
       const selectedTemplate = state.templates.find((t) => t.id === addTemplateSelect.value) || state.templates[0];
       const templatePanels = selectedTemplate ? normalizePanels(selectedTemplate.panels) : [];
       const panelSource = addPanelSource.value || 'profile';
-      const sourceProfile = state.servers.find((s) => s.name === addSourceProfile.value) || state.servers[0];
+      const sourceProfile = state.sessions.find((s) => s.name === addSourceProfile.value) || state.sessions[0];
       const profilePanels = sourceProfile ? normalizePanels(clonePanels(sourceProfile)) : [];
 
       let targetHost;
@@ -1116,31 +1515,36 @@
         }
         nameSeed = label;
       } else {
-        const selectedProfile = state.servers.find((s) => s.name === selected);
+        const selectedProfile = state.sessions.find((s) => s.name === selected);
         if (!selectedProfile) return;
-        targetHost = profileNetworkHost(selectedProfile) || selectedProfile.ip;
+        targetHost = sessionMachineHost(selectedProfile) || selectedProfile.ip;
         nameSeed = selectedProfile.name;
       }
 
       const newProfile = {
         name: makeUniqueName(`${nameSeed}-${label}-${session}`),
         display: label,
+        machine: {
+          name: isNew ? label : nameSeed,
+          host: targetHost,
+        },
         ip: targetHost,
-        panels: panelSource === 'template' ? templatePanels : profilePanels,
+        tabs: panelSource === 'template' ? templatePanels : profilePanels,
       };
-      if (!newProfile.panels.length) newProfile.panels = templatePanels;
+      if (!newProfile.tabs.length) newProfile.tabs = templatePanels;
 
-      const remotePanels = await fetchServerPanels(targetHost);
+      const remotePanels = await fetchMachinePanels(targetHost);
       if (remotePanels && remotePanels.length) {
-        newProfile.panels = remotePanels;
+        newProfile.tabs = remotePanels;
       }
 
       setTerminalSession(newProfile, session);
+      newProfile.panels = newProfile.tabs;
 
-      state.servers.unshift(newProfile);
+      state.sessions.unshift(newProfile);
       saveProfiles();
       closeAddModal();
-      reloadServers(newProfile.name);
+      reloadSessions(newProfile.name);
     }
 
     let dragServerName = null;
@@ -1156,23 +1560,23 @@
 
     function moveServerTo(dragName, targetName, after) {
       if (!dragName || !targetName || dragName === targetName) return;
-      const fromIdx = state.servers.findIndex((s) => s.name === dragName);
-      const targetIdx = state.servers.findIndex((s) => s.name === targetName);
+      const fromIdx = state.sessions.findIndex((s) => s.name === dragName);
+      const targetIdx = state.sessions.findIndex((s) => s.name === targetName);
       if (fromIdx < 0 || targetIdx < 0) return;
 
-      const [item] = state.servers.splice(fromIdx, 1);
+      const [item] = state.sessions.splice(fromIdx, 1);
       let insertIdx = targetIdx;
       if (after) insertIdx += 1;
       if (fromIdx < targetIdx) insertIdx -= 1;
-      state.servers.splice(insertIdx, 0, item);
+      state.sessions.splice(insertIdx, 0, item);
       saveProfiles();
     }
 
     function renderSidebar() {
-      const list = document.getElementById('server-list');
+      const list = document.getElementById('session-list');
       list.innerHTML = '';
 
-      state.servers.forEach((server) => {
+      state.sessions.forEach((server) => {
         const row = document.createElement('div');
         row.className = 'session-row';
 
@@ -1202,12 +1606,12 @@
         });
 
         const main = document.createElement('button');
-        main.className = 'session-main' + (server.name === state.activeServer ? ' active' : '');
-        main.onclick = () => selectServer(server);
+        main.className = 'session-main' + (server.name === state.activeSession ? ' active' : '');
+        main.onclick = () => selectSession(server);
 
         const dot = document.createElement('span');
         dot.className = 'session-dot';
-        dot.style.background = colorForServer(server);
+        dot.style.background = colorForSession(server);
 
         const text = document.createElement('div');
         text.className = 'session-text';
@@ -1216,7 +1620,7 @@
         label.textContent = displayName(server);
         const meta = document.createElement('div');
         meta.className = 'session-meta';
-        meta.textContent = profileNetworkHost(server) || server.ip || 'unknown-host';
+        meta.textContent = sessionMachineHost(server) || server.ip || 'unknown-host';
         text.appendChild(label);
         text.appendChild(meta);
 
@@ -1278,29 +1682,38 @@
       });
     }
 
-    function renderTabs(server) {
+    async function refreshServiceSnapshotForSession(server) {
+      const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
+      const snapshot = await fetchRemoteServices(host);
+      state.serviceSnapshotByHost[host] = snapshot;
+      return snapshot;
+    }
+
+    async function renderTabs(server, refreshLive = true) {
       const tabs = document.getElementById('tabs');
       tabs.innerHTML = '';
+      const sessionTabs = server.tabs || server.panels || [];
 
-      if (!server.panels || server.panels.length === 0) {
+      if (!sessionTabs || sessionTabs.length === 0) {
         const addTabBtn = document.createElement('button');
         addTabBtn.id = 'add-tab-btn';
         addTabBtn.title = 'Add panel tab';
         addTabBtn.textContent = '+';
         addTabBtn.onclick = () => openPanelModal(server);
         tabs.appendChild(addTabBtn);
-        delete state.activeTabByServer[server.name];
+        delete state.activeTabBySession[server.name];
         saveUIState();
         activateFrame('');
         return;
       }
 
-      const savedLabel = state.activeTabByServer[server.name];
+      const savedLabel = state.activeTabBySession[server.name];
       let selectedFrameId = null;
       let selectedLabel = null;
 
-      server.panels.forEach((panel, i) => {
-        const frame = ensureFrame(server, panel);
+      sessionTabs.forEach((panel, i) => {
+        const endpoint = resolveTabEndpoint(server, panel);
+        const frame = ensureFrame(server, panel, endpoint);
         const frameId = frame.id;
         const btn = document.createElement('button');
         btn.className = 'tab-btn';
@@ -1314,32 +1727,33 @@
         btn.onclick = () => {
           document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
           btn.classList.add('active');
-          state.activeTabByServer[server.name] = panel.label;
+          state.activeTabBySession[server.name] = panel.id || panel.label;
           saveUIState();
           activateFrame(frameId);
         };
         tabs.appendChild(btn);
 
-        probePanelStatus(server, panel).then((status) => {
+        probePanelStatus(server, panel, endpoint).then((status) => {
           dot.classList.remove('unknown', 'up', 'down');
           dot.classList.add(status.up ? 'up' : 'down');
           if (status.up) {
-            dot.title = `${panel.label} up on ${status.host}:${panel.port} (${status.latency}ms)`;
+            dot.title = `${panel.label} up on ${status.host}:${endpoint?.port || panel.port} (${status.latency}ms)`;
           } else {
-            dot.title = `${panel.label} down on ${status.host}:${panel.port}${status.error ? ` (${status.error})` : ''}`;
+            dot.title = `${panel.label} down on ${status.host}:${endpoint?.port || panel.port}${status.error ? ` (${status.error})` : ''}`;
           }
         });
 
-        if ((savedLabel && savedLabel === panel.label) || (!savedLabel && i === 0)) {
+        if ((savedLabel && savedLabel === (panel.id || panel.label)) || (!savedLabel && i === 0)) {
           selectedFrameId = frameId;
-          selectedLabel = panel.label;
+          selectedLabel = panel.id || panel.label;
           btn.classList.add('active');
         }
       });
 
       if (!selectedFrameId) {
-        selectedFrameId = frameIdFor(server, server.panels[0]);
-        selectedLabel = server.panels[0].label;
+        const fallbackEndpoint = resolveTabEndpoint(server, sessionTabs[0]);
+        selectedFrameId = frameIdFor(server, sessionTabs[0], fallbackEndpoint);
+        selectedLabel = sessionTabs[0].id || sessionTabs[0].label;
       }
 
       const addTabBtn = document.createElement('button');
@@ -1349,9 +1763,14 @@
       addTabBtn.onclick = () => openPanelModal(server);
       tabs.appendChild(addTabBtn);
 
-      state.activeTabByServer[server.name] = selectedLabel;
+      state.activeTabBySession[server.name] = selectedLabel;
       saveUIState();
       activateFrame(selectedFrameId);
+      if (refreshLive) {
+        refreshServiceSnapshotForSession(server).then(() => {
+          if (state.activeSession === server.name) renderTabs(server, false);
+        }).catch(() => {});
+      }
     }
 
     async function init() {
@@ -1366,6 +1785,7 @@
       document.getElementById('panel-save').onclick = savePanelEditor;
       document.getElementById('panel-sync').onclick = syncPanelEditorFromRemote;
       document.getElementById('panel-launch-files').onclick = launchFilesServiceFromPanelEditor;
+      document.getElementById('panel-refresh-services').onclick = refreshDiscoveredServices;
       document.getElementById('panel-add').onclick = () => {
         if (!state.panelEditor) return;
         state.panelEditor.panels.push({ label: 'Panel', port: 9000, path: '/', protocol: 'http' });
@@ -1375,19 +1795,19 @@
       addServerSelect.addEventListener('change', async () => {
         updateServerChoiceVisibility();
         if (addServerSelect.value !== '__new__') {
-          const server = state.servers.find((s) => s.name === addServerSelect.value);
+          const server = state.sessions.find((s) => s.name === addServerSelect.value);
           if (server) {
-            const host = profileNetworkHost(server) || server.ip || '127.0.0.1';
+            const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
             addLabel.value = displayName(server);
             addSourceProfile.value = server.name;
             addServerIp.value = host;
             populateKnownServerOptions(host);
             await refreshTmuxSessions(host);
-            fillTmuxOptions(terminalSessionForServer(server));
+            fillTmuxOptions(terminalSessionForSession(server));
           }
         } else {
-          const baseServer = state.servers.find((s) => s.name === state.activeServer) || state.servers[0];
-          const suggestedHost = baseServer ? (profileNetworkHost(baseServer) || baseServer.ip || '') : '';
+          const baseServer = state.sessions.find((s) => s.name === state.activeSession) || state.sessions[0];
+          const suggestedHost = baseServer ? (sessionMachineHost(baseServer) || baseServer.ip || '') : '';
           addServerIp.value = suggestedHost;
           if (!addLabel.value.trim()) addLabel.value = baseServer ? displayName(baseServer) : '';
           populateKnownServerOptions(suggestedHost);
@@ -1426,7 +1846,10 @@
         if (e.key === 'Escape' && panelModal.classList.contains('open')) closePanelModal();
       });
 
-      reloadServers(state.activeServer);
+      await reloadSessions(state.activeSession);
+      window.setInterval(() => {
+        refreshSessionsFromControlIfChanged();
+      }, 4000);
     }
 
     init();

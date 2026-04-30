@@ -9,9 +9,11 @@ Browser-based terminal dashboard with tabs for:
 
 ## Key Architecture
 
-- **Client-side session config**: left sidebar profiles/order/labels are saved in browser `localStorage`.
+- **Client-side session config**: left sidebar sessions/order/labels are saved in browser `localStorage`.
+- **Control-side session store**: sessions are persisted to `sessions.json` on the control host, with browser localStorage kept as a fallback cache.
 - **Server-side runtime**: each machine runs its own services and exposes ports.
-- `servers.json` is now only a **bootstrap/default profile list** for first page load.
+- `machines.json` is the machine inventory/bootstrap list for first page load.
+- `servers.json` remains as a legacy fallback during migration.
 - `session_templates.json` defines control-side default panel templates for new sessions.
 
 This avoids cross-machine profile drift and lets each client keep its own view layout.
@@ -45,6 +47,17 @@ Starts only the UI/API process on this machine.
 ```
 
 Use this on the machine you open in browser (can be localhost).
+Stop it with:
+
+```bash
+./start-control.sh --stop
+```
+
+or:
+
+```bash
+./stop-control.sh
+```
 
 ### 3) Legacy all-in-one
 
@@ -54,10 +67,10 @@ Use this on the machine you open in browser (can be localhost).
 
 Click `+` in sidebar:
 
-1. Select an existing profile or `+ New server profile`
-2. Choose server host/IP (includes homelab Tailscale presets)
+1. Select an existing session or `+ New machine / session`
+2. Choose machine host/IP (includes homelab Tailscale presets)
 3. Choose panel source:
-   - existing server profile (clone panel layout)
+   - existing session (clone tab layout)
    - panel template (from control-side `session_templates.json`)
 4. If using template source, choose a panel template
 5. Choose terminal session source:
@@ -67,16 +80,17 @@ Click `+` in sidebar:
 
 ## Session Setup Flow
 
-Each session row includes `S` (setup). Use it to maintain panel mappings after creation:
+Each session row includes `S` (setup). Use it to maintain tab mappings after creation:
 
-- Add panel
-- Remove panel
-- Edit panel label/port/path/protocol
-- Sync panel list/ports from remote (`/servers/proxy`)
+- Add custom tab
+- Remove tab
+- Edit tab label/port/path/protocol
+- Sync tab list/ports from remote (`/machines/proxy`)
+- Discover remote services and adopt them as tabs
 - Launch a new files service on the target host and wire `Files` panel automatically
-- Save updated panel config to browser localStorage
+- Save updated session config to browser localStorage
 
-This is the fastest way to fix broken Monitor/Logs/Files/Terminal port mappings after restarts or port shifts.
+This is the fastest way to fix broken Monitor/Logs/Files/Terminal mappings after restarts or port shifts.
 
 The tabs bar also includes `+` to open setup quickly and add a new panel/tab to the active session.
 Each tab shows a status dot:
@@ -99,17 +113,63 @@ Each template entry uses:
 
 ## API Notes
 
-- `GET /servers` -> bootstrap profiles
+- `GET /machines` -> bootstrap machine inventory
+- `GET /servers` -> legacy-compatible bootstrap alias
+- `GET /sessions` -> control-side saved sessions/workspaces
+- `PUT /sessions` -> replace control-side saved sessions/workspaces
+- `GET /sessions/<name>` -> one saved session/workspace
+- `POST /sessions/<name>/tabs` -> add/update a tab in a saved session
+- `DELETE /sessions/<name>/tabs` -> remove a tab from a saved session
+- `GET /control/context` -> control-side view of known machines, sessions, and templates
 - `GET /session-templates` -> panel templates for add-session modal
 - `GET /panel/status?host=<ip>&port=<n>` -> single panel port health probe
 - `GET /services` -> services running on this host (including extra fileserver instances)
 - `GET /services/proxy?host=<ip>&port=7000` -> service snapshot from selected server
 - `GET /tmux/sessions` -> local host tmux sessions
 - `GET /tmux/sessions/proxy?host=<ip>&port=7000` -> tmux sessions from a selected server
-- `GET /servers/proxy?host=<ip>&port=7000` -> panel config from selected server
+- `GET /agents/runtime` -> agents running on this host
+- `GET /agents/runtime/proxy?host=<ip>&port=7000` -> agents running on a selected server
+- `POST /agents/start` -> start an agent on this host
+- `POST /agents/start/proxy` -> start an agent on a selected server
+- `POST /agents/stop` -> stop an agent on this host
+- `POST /agents/stop/proxy` -> stop an agent on a selected server
+- `GET /machines/proxy?host=<ip>&port=7000` -> machine panel config from selected server
+- `GET /servers/proxy?host=<ip>&port=7000` -> legacy-compatible alias
 - `POST /services/files/start` -> start an additional fileserver on this host
 - `POST /services/files/start/proxy` -> start an additional fileserver on a selected server
 - `POST /tmux/kill` -> kill a tmux session on local host or proxied host
+
+## Run Modes
+
+- `start-control.sh` runs the hub with `RUN_MODE=control`
+- `start-remote.sh` runs the hub with `RUN_MODE=remote`
+- `start.sh` defaults to `RUN_MODE=all`
+
+Control mode is where machine inventory and saved sessions belong.
+Remote mode is where local runtime/service APIs belong.
+
+## Agent-Driven Tabs
+
+Remote agents can call the control host to add or update tabs in a specific session.
+
+Typical flow:
+
+1. Agent starts or discovers a service on its remote machine.
+2. Agent calls `POST /sessions/<session>/tabs` on the control host.
+3. Control persists the tab in `sessions.json`.
+4. The operator UI polls control-side session state and picks up the new tab.
+
+Authentication is not implemented yet.
+
+## Agent Lifecycle
+
+Remote nodes can now manage first-class agent processes.
+
+- Preferred backend: `tmux` detached session
+- Fallback backend: local background process
+- Registry: `agent_registry.json`
+
+This is meant to keep remote coding agents alive independently of the control UI.
 
 ## Why Files Panel Breaks Sometimes
 

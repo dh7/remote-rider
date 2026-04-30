@@ -18,11 +18,23 @@ from pydantic import BaseModel, Field
 
 app = FastAPI()
 HERE = Path(__file__).parent
-SERVERS_FILE = HERE / "servers.json"
+MACHINES_FILE = HERE / "machines.json"
+LEGACY_SERVERS_FILE = HERE / "servers.json"
+SESSIONS_FILE = HERE / "sessions.json"
 TEMPLATES_FILE = HERE / "session_templates.json"
 SERVICE_REGISTRY_FILE = HERE / "service_registry.json"
+AGENT_REGISTRY_FILE = HERE / "agent_registry.json"
 SERVERS_LOCK = threading.Lock()
+SESSIONS_LOCK = threading.Lock()
 SERVICE_LOCK = threading.Lock()
+AGENT_LOCK = threading.Lock()
+SERVICE_PANEL_DEFAULTS = {
+    "terminal": {"label": "Terminal", "path": "/", "protocol": "http", "launchable": False},
+    "monitor": {"label": "Monitor", "path": "/", "protocol": "http", "launchable": False},
+    "logs": {"label": "Logs", "path": "/", "protocol": "http", "launchable": False},
+    "files": {"label": "Files", "path": "/files", "protocol": "http", "launchable": True},
+    "hub": {"label": "Hub", "path": "/", "protocol": "http", "launchable": False},
+}
 
 
 class TabRequest(BaseModel):
@@ -64,6 +76,50 @@ class StartFilesServiceProxyRequest(BaseModel):
     port: int | None = Field(default=None, ge=1, le=65535)
 
 
+class SessionsPutRequest(BaseModel):
+    sessions: list[dict[str, Any]]
+
+
+class SessionTabUpsertRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    tab_id: str | None = Field(default=None, min_length=1, max_length=120)
+    service: str | None = Field(default=None, min_length=1, max_length=80)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    path: str = "/"
+    protocol: str = "http"
+    machine_name: str | None = Field(default=None, min_length=1, max_length=120)
+    machine_host: str | None = Field(default=None, min_length=1, max_length=255)
+    activate: bool = False
+
+
+class SessionTabDeleteRequest(BaseModel):
+    tab_id: str | None = Field(default=None, min_length=1, max_length=120)
+    label: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class AgentStartRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    command: str = Field(min_length=1, max_length=4000)
+    cwd: str | None = Field(default=None, min_length=1, max_length=2000)
+    tmux_session: str | None = Field(default=None, min_length=1, max_length=120)
+    session_name: str | None = Field(default=None, min_length=1, max_length=120)
+    machine_host: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class AgentStopRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class AgentStartProxyRequest(AgentStartRequest):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)
+
+
+class AgentStopProxyRequest(AgentStopRequest):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)
+
+
 def _normalize_path(path: str) -> str:
     cleaned = (path or "/").strip()
     if not cleaned:
@@ -80,17 +136,152 @@ def _normalize_protocol(protocol: str) -> str:
     return cleaned
 
 
-def _load_servers() -> list[dict[str, Any]]:
-    if not SERVERS_FILE.exists():
+def _run_mode() -> str:
+    raw = os.getenv("RUN_MODE", "all").strip().lower()
+    if raw in {"control", "remote", "all"}:
+        return raw
+    return "all"
+
+
+def _control_api_enabled() -> bool:
+    return _run_mode() in {"control", "all"}
+
+
+def _runtime_api_enabled() -> bool:
+    return _run_mode() in {"remote", "all"}
+
+
+def _require_control_api() -> None:
+    if not _control_api_enabled():
+        raise HTTPException(status_code=404, detail="control API not enabled in this mode")
+
+
+def _require_runtime_api() -> None:
+    if not _runtime_api_enabled():
+        raise HTTPException(status_code=404, detail="runtime API not enabled in this mode")
+
+
+def _load_machine_inventory() -> list[dict[str, Any]]:
+    source_file = MACHINES_FILE if MACHINES_FILE.exists() else LEGACY_SERVERS_FILE
+    if not source_file.exists():
         return []
-    data = json.loads(SERVERS_FILE.read_text())
+    data = json.loads(source_file.read_text())
     if not isinstance(data, list):
-        raise HTTPException(status_code=500, detail="servers.json must contain a JSON list")
+        raise HTTPException(status_code=500, detail=f"{source_file.name} must contain a JSON list")
     return data
 
 
-def _save_servers(servers: list[dict[str, Any]]) -> None:
-    SERVERS_FILE.write_text(json.dumps(servers, indent=2) + "\n")
+def _save_machine_inventory(machines: list[dict[str, Any]]) -> None:
+    MACHINES_FILE.write_text(json.dumps(machines, indent=2) + "\n")
+
+
+def _load_control_sessions() -> list[dict[str, Any]]:
+    if not SESSIONS_FILE.exists():
+        return []
+    try:
+        data = json.loads(SESSIONS_FILE.read_text())
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"{SESSIONS_FILE.name} is invalid JSON") from exc
+    if not isinstance(data, list):
+        raise HTTPException(status_code=500, detail=f"{SESSIONS_FILE.name} must contain a JSON list")
+    return [row for row in data if isinstance(row, dict)]
+
+
+def _save_control_sessions(sessions: list[dict[str, Any]]) -> None:
+    SESSIONS_FILE.write_text(json.dumps(sessions, indent=2) + "\n")
+
+
+def _tab_slug(value: str) -> str:
+    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in value.strip())
+    collapsed = "-".join(part for part in cleaned.split("-") if part)
+    return collapsed or "tab"
+
+
+def _normalize_session_tab(payload: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    label = str(payload.get("label", "")).strip()
+    if not label:
+        return None
+    tab_id_raw = str(payload.get("id") or payload.get("tab_id") or "").strip()
+    tab: dict[str, Any] = {
+        "id": tab_id_raw or f"tab-{_tab_slug(label)}",
+        "label": label,
+    }
+    service = str(payload.get("service", "")).strip()
+    if service:
+        tab["service"] = service
+    port = payload.get("port")
+    if isinstance(port, int) and port > 0:
+        tab["port"] = port
+    path = str(payload.get("path", "")).strip()
+    if path:
+        tab["path"] = _normalize_path(path)
+    protocol = str(payload.get("protocol", "")).strip().lower()
+    if protocol:
+        tab["protocol"] = _normalize_protocol(protocol)
+    return tab
+
+
+def _normalize_control_session(payload: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        return None
+    display = str(payload.get("display", "")).strip()
+    machine_raw = payload.get("machine")
+    machine_host = ""
+    machine_name = ""
+    if isinstance(machine_raw, dict):
+        machine_host = str(machine_raw.get("host", "")).strip()
+        machine_name = str(machine_raw.get("name", "")).strip()
+    if not machine_host:
+        machine_host = str(payload.get("ip", "")).strip()
+    if not machine_name:
+        machine_name = name
+    raw_tabs = payload.get("tabs", payload.get("panels", []))
+    tabs = []
+    if isinstance(raw_tabs, list):
+        for row in raw_tabs:
+            tab = _normalize_session_tab(row)
+            if tab:
+                tabs.append(tab)
+    session = {
+        "name": name,
+        "machine": {
+            "name": machine_name,
+            "host": machine_host or "127.0.0.1",
+        },
+        "tabs": tabs,
+    }
+    if display:
+        session["display"] = display
+    return session
+
+
+def _load_normalized_control_sessions() -> list[dict[str, Any]]:
+    return [session for session in (_normalize_control_session(row) for row in _load_control_sessions()) if session]
+
+
+def _save_normalized_control_sessions(sessions: list[dict[str, Any]]) -> None:
+    _save_control_sessions(sessions)
+
+
+def _load_agent_registry() -> list[dict[str, Any]]:
+    if not AGENT_REGISTRY_FILE.exists():
+        return []
+    try:
+        data = json.loads(AGENT_REGISTRY_FILE.read_text())
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [row for row in data if isinstance(row, dict)]
+
+
+def _save_agent_registry(rows: list[dict[str, Any]]) -> None:
+    AGENT_REGISTRY_FILE.write_text(json.dumps(rows, indent=2) + "\n")
 
 
 def _default_templates() -> list[dict[str, Any]]:
@@ -297,7 +488,7 @@ def _fetch_remote_servers(host: str, port: int) -> dict[str, Any]:
     if _is_local_host(cleaned_host):
         return {
             "ok": True,
-            "servers": _apply_port_overrides(_load_servers()),
+            "servers": _apply_port_overrides(_load_machine_inventory()),
             "host": socket.gethostname(),
             "source": "local",
         }
@@ -389,6 +580,216 @@ def _cleanup_service_registry(rows: list[dict[str, Any]]) -> list[dict[str, Any]
     return alive
 
 
+def _agent_entry_alive(row: dict[str, Any]) -> bool:
+    tmux_session = str(row.get("tmux_session", "")).strip()
+    if tmux_session:
+        return bool(shutil.which("tmux")) and _tmux_session_exists(tmux_session)
+    pid = row.get("pid")
+    return isinstance(pid, int) and _pid_alive(pid)
+
+
+def _cleanup_agent_registry(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in rows if _agent_entry_alive(row)]
+
+
+def _list_local_agents() -> list[dict[str, Any]]:
+    with AGENT_LOCK:
+        rows = _cleanup_agent_registry(_load_agent_registry())
+        _save_agent_registry(rows)
+
+    agents: list[dict[str, Any]] = []
+    for row in rows:
+        entry = dict(row)
+        entry["status"] = "running" if _agent_entry_alive(row) else "stopped"
+        agents.append(entry)
+    return agents
+
+
+def _start_agent_local(payload: AgentStartRequest) -> dict[str, Any]:
+    name = payload.name.strip()
+    command = payload.command.strip()
+    if not name or not command:
+        raise HTTPException(status_code=400, detail="name and command are required")
+
+    cwd = str((Path(payload.cwd).expanduser().resolve() if payload.cwd else HERE))
+    tmux_session = (payload.tmux_session or name).strip()
+
+    with AGENT_LOCK:
+        rows = _cleanup_agent_registry(_load_agent_registry())
+        existing = next((row for row in rows if str(row.get("name")) == name), None)
+        if existing is not None:
+            return {"status": "exists", "agent": existing}
+
+        log_dir = HERE / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"agent-{_tab_slug(name)}.log"
+
+        entry: dict[str, Any] = {
+            "name": name,
+            "command": command,
+            "cwd": cwd,
+            "session_name": payload.session_name,
+            "machine_host": payload.machine_host or os.getenv("PUBLIC_HOST") or socket.gethostname(),
+            "started_at": int(time.time()),
+        }
+
+        if shutil.which("tmux"):
+            escaped_command = command.replace("'", "'\"'\"'")
+            shell_line = f"cd '{cwd}' && {escaped_command}"
+            result = subprocess.run(
+                ["tmux", "new-session", "-d", "-s", tmux_session, shell_line],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise HTTPException(status_code=500, detail=result.stderr.strip() or "failed to start tmux agent")
+            entry["tmux_session"] = tmux_session
+            entry["backend"] = "tmux"
+        else:
+            log_handle = log_path.open("a")
+            proc = subprocess.Popen(
+                command,
+                cwd=cwd,
+                shell=True,
+                executable="/bin/bash",
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                close_fds=True,
+            )
+            log_handle.close()
+            entry["pid"] = proc.pid
+            entry["backend"] = "process"
+
+        entry["log_path"] = str(log_path)
+        rows.append(entry)
+        _save_agent_registry(rows)
+
+    return {"status": "ok", "agent": entry}
+
+
+def _stop_agent_local(payload: AgentStopRequest) -> dict[str, Any]:
+    with AGENT_LOCK:
+        rows = _cleanup_agent_registry(_load_agent_registry())
+        target = next((row for row in rows if str(row.get("name")) == payload.name), None)
+        if target is None:
+            return {"status": "not_found", "name": payload.name}
+
+        backend = str(target.get("backend", ""))
+        stopped = False
+        if backend == "tmux" and target.get("tmux_session"):
+            stopped = _kill_tmux_session(str(target["tmux_session"]))
+        elif isinstance(target.get("pid"), int):
+            pid = int(target["pid"])
+            try:
+                os.kill(pid, 15)
+                time.sleep(0.2)
+                if _pid_alive(pid):
+                    os.kill(pid, 9)
+                stopped = True
+            except OSError:
+                stopped = False
+
+        rows = [row for row in rows if str(row.get("name")) != payload.name]
+        _save_agent_registry(rows)
+
+    return {"status": "stopped" if stopped else "not_found", "name": payload.name}
+
+
+def _fetch_remote_agents(host: str, port: int) -> dict[str, Any]:
+    cleaned_host = _normalize_host(host)
+    if _is_local_host(cleaned_host):
+        return {
+            "host": socket.gethostname(),
+            "source": "local",
+            "agents": _list_local_agents(),
+        }
+
+    url = f"http://{cleaned_host}:{port}/agents/runtime"
+    req = UrlRequest(url, method="GET")
+    try:
+        with urlopen(req, timeout=3) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response shape")
+            payload.setdefault("source", "proxy")
+            payload.setdefault("host", cleaned_host)
+            return payload
+    except Exception as exc:
+        return {
+            "host": cleaned_host,
+            "source": "proxy",
+            "agents": [],
+            "error": str(exc),
+        }
+
+
+def _start_remote_agent(payload: AgentStartProxyRequest) -> dict[str, Any]:
+    cleaned_host = _normalize_host(payload.host)
+    if _is_local_host(cleaned_host):
+        return _start_agent_local(
+            AgentStartRequest(
+                name=payload.name,
+                command=payload.command,
+                cwd=payload.cwd,
+                tmux_session=payload.tmux_session,
+                session_name=payload.session_name,
+                machine_host=payload.machine_host or cleaned_host,
+            )
+        )
+
+    body = json.dumps(
+        {
+            "name": payload.name,
+            "command": payload.command,
+            "cwd": payload.cwd,
+            "tmux_session": payload.tmux_session,
+            "session_name": payload.session_name,
+            "machine_host": payload.machine_host or cleaned_host,
+        }
+    ).encode("utf-8")
+    req = UrlRequest(
+        f"http://{cleaned_host}:{payload.hub_port}/agents/start",
+        data=body,
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=4) as resp:
+            payload_out = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload_out, dict):
+                raise ValueError("invalid response shape")
+            payload_out.setdefault("source", "proxy")
+            payload_out.setdefault("host", cleaned_host)
+            return payload_out
+    except Exception as exc:
+        return {"status": "error", "host": cleaned_host, "source": "proxy", "reason": str(exc)}
+
+
+def _stop_remote_agent(payload: AgentStopProxyRequest) -> dict[str, Any]:
+    cleaned_host = _normalize_host(payload.host)
+    if _is_local_host(cleaned_host):
+        return _stop_agent_local(AgentStopRequest(name=payload.name))
+
+    body = json.dumps({"name": payload.name}).encode("utf-8")
+    req = UrlRequest(
+        f"http://{cleaned_host}:{payload.hub_port}/agents/stop",
+        data=body,
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=4) as resp:
+            payload_out = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload_out, dict):
+                raise ValueError("invalid response shape")
+            payload_out.setdefault("source", "proxy")
+            payload_out.setdefault("host", cleaned_host)
+            return payload_out
+    except Exception as exc:
+        return {"status": "error", "host": cleaned_host, "source": "proxy", "reason": str(exc)}
+
+
 def _is_port_busy_for_bind(port: int, bind_host: str = "0.0.0.0") -> bool:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -426,14 +827,19 @@ def _service_entry(name: str, port: int, *, enabled: bool = True, pid: int | Non
         probe = _probe_panel_port(host_for_probe, port)
     else:
         probe = {"up": False, "error": "disabled"}
+    service_defaults = SERVICE_PANEL_DEFAULTS.get(name, {})
     return {
         "name": name,
+        "label": service_defaults.get("label", name.title()),
         "port": port,
         "enabled": enabled,
         "pid": pid,
         "up": bool(probe.get("up", False)),
         "latency_ms": probe.get("latency_ms"),
         "error": probe.get("error"),
+        "path": service_defaults.get("path", "/"),
+        "protocol": service_defaults.get("protocol", "http"),
+        "launchable": bool(service_defaults.get("launchable", False)),
     }
 
 
@@ -468,6 +874,11 @@ def _local_services_snapshot() -> dict[str, Any]:
                     pid=pid,
                 )
             )
+            services[-1]["label"] = "Files"
+            services[-1]["path"] = "/files"
+            services[-1]["protocol"] = "http"
+            services[-1]["launchable"] = True
+            services[-1]["kind"] = "fileserver"
 
     return {
         "host": socket.gethostname(),
@@ -587,7 +998,7 @@ API: Web Terminal Hub
 Context:
 - This API manages a local web-terminal dashboard and panel tabs.
 - UI profile state is persisted in client localStorage.
-- GET /servers returns bootstrap defaults from servers.json.
+- GET /servers returns bootstrap defaults from machines.json (or legacy servers.json).
 
 Auth:
 - None (local/private network use).
@@ -608,14 +1019,21 @@ Idempotency:
 Errors:
 - 400 invalid protocol/path/payload
 - 404 server not found (when creating tab without ip)
-- 500 malformed servers.json
+- 500 malformed machines.json
 
 Specs:
 - OpenAPI: {base}/openapi.json
 - Docs: {base}/docs
 
 Runtime:
-- Health: GET {base}/servers
+- Mode: GET {base}/api/info
+- Machine inventory: GET {base}/machines
+- Legacy inventory alias: GET {base}/servers
+- Control context: GET {base}/control/context
+- Control-side sessions: GET/PUT {base}/sessions
+- Session detail: GET {base}/sessions/<session_name>
+- Agent tab upsert: POST {base}/sessions/<session_name>/tabs
+- Agent tab delete: DELETE {base}/sessions/<session_name>/tabs
 - panel health probe: GET {base}/panel/status?host=<ip>&port=<port>
 - local services: GET {base}/services
 - remote services: GET {base}/services/proxy?host=<ip>&port=7000
@@ -623,7 +1041,14 @@ Runtime:
 - start remote files service: POST {base}/services/files/start/proxy
 - tmux sessions: GET {base}/tmux/sessions
 - tmux sessions by host: GET {base}/tmux/sessions/proxy?host=<ip>&port=7000
-- server panels by host: GET {base}/servers/proxy?host=<ip>&port=7000
+- local agents: GET {base}/agents/runtime
+- remote agents: GET {base}/agents/runtime/proxy?host=<ip>&port=7000
+- start local agent: POST {base}/agents/start
+- start remote agent: POST {base}/agents/start/proxy
+- stop local agent: POST {base}/agents/stop
+- stop remote agent: POST {base}/agents/stop/proxy
+- machine panels by host: GET {base}/machines/proxy?host=<ip>&port=7000
+- legacy machine-panels alias: GET {base}/servers/proxy?host=<ip>&port=7000
 - kill tmux session: POST {base}/tmux/kill
 - Add/update tab: POST {base}/tab
 - Add/remove remote: POST {base}/remote
@@ -638,6 +1063,14 @@ curl -X POST {base}/tab \
 curl -X POST {base}/remote \
   -H 'content-type: application/json' \
   -d '{{"action":"add","name":"netochka-job2","display":"netochka","ip":"100.119.43.10","base":"netochka","position":"top","terminal_session":"webterm"}}'
+
+curl -X POST {base}/sessions/netochka-job1/tabs \
+  -H 'content-type: application/json' \
+  -d '{{"label":"Preview","service":"preview","port":8123,"path":"/","protocol":"http","activate":true}}'
+
+curl -X POST {base}/agents/start/proxy \
+  -H 'content-type: application/json' \
+  -d '{{"host":"100.119.43.10","name":"agent-review","command":"codex --dangerously-bypass-approvals-and-sandbox","session_name":"demo-session"}}'
 """
 
 
@@ -646,14 +1079,211 @@ def index() -> str:
     return (HERE / "index.html").read_text()
 
 
+@app.get("/api/info")
+def api_info() -> dict[str, Any]:
+    mode = _run_mode()
+    return {
+        "mode": mode,
+        "control_api": _control_api_enabled(),
+        "runtime_api": _runtime_api_enabled(),
+    }
+
+
+@app.get("/control/context")
+def control_context() -> dict[str, Any]:
+    _require_control_api()
+    with SESSIONS_LOCK:
+        sessions = _load_normalized_control_sessions()
+    return {
+        "mode": _run_mode(),
+        "machines": servers(),
+        "sessions": sessions,
+        "session_templates": _load_templates(),
+    }
+
+
 @app.get("/servers")
 def servers() -> list[dict]:
-    return _apply_port_overrides(_load_servers())
+    return _apply_port_overrides(_load_machine_inventory())
+
+
+@app.get("/machines")
+def machines() -> list[dict]:
+    return servers()
 
 
 @app.get("/session-templates")
 def session_templates() -> list[dict[str, Any]]:
     return _load_templates()
+
+
+@app.get("/sessions")
+def sessions() -> dict[str, Any]:
+    _require_control_api()
+    with SESSIONS_LOCK:
+        return {
+            "sessions": _load_normalized_control_sessions(),
+            "storage": str(SESSIONS_FILE.name),
+        }
+
+
+@app.put("/sessions")
+def replace_sessions(payload: SessionsPutRequest) -> dict[str, Any]:
+    _require_control_api()
+    normalized = [session for session in (_normalize_control_session(row) for row in payload.sessions) if session]
+    with SESSIONS_LOCK:
+        _save_normalized_control_sessions(normalized)
+    return {
+        "status": "ok",
+        "count": len(normalized),
+        "storage": str(SESSIONS_FILE.name),
+    }
+
+
+@app.get("/sessions/{session_name}")
+def session_by_name(session_name: str) -> dict[str, Any]:
+    _require_control_api()
+    with SESSIONS_LOCK:
+        sessions = _load_normalized_control_sessions()
+    session = next((row for row in sessions if row.get("name") == session_name), None)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"session": session}
+
+
+@app.get("/agents/runtime")
+def agents_runtime() -> dict[str, Any]:
+    _require_runtime_api()
+    return {
+        "host": socket.gethostname(),
+        "source": "local",
+        "agents": _list_local_agents(),
+    }
+
+
+@app.get("/agents/runtime/proxy")
+def agents_runtime_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
+    return _fetch_remote_agents(host, port)
+
+
+@app.post("/agents/start")
+def agents_start(payload: AgentStartRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return _start_agent_local(payload)
+
+
+@app.post("/agents/start/proxy")
+def agents_start_proxy(payload: AgentStartProxyRequest) -> dict[str, Any]:
+    return _start_remote_agent(payload)
+
+
+@app.post("/agents/stop")
+def agents_stop(payload: AgentStopRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return _stop_agent_local(payload)
+
+
+@app.post("/agents/stop/proxy")
+def agents_stop_proxy(payload: AgentStopProxyRequest) -> dict[str, Any]:
+    return _stop_remote_agent(payload)
+
+
+@app.post("/sessions/{session_name}/tabs")
+def upsert_session_tab(session_name: str, payload: SessionTabUpsertRequest) -> dict[str, Any]:
+    _require_control_api()
+    normalized_tab = _normalize_session_tab(
+        {
+            "id": payload.tab_id or "",
+            "label": payload.label,
+            "service": payload.service,
+            "port": payload.port,
+            "path": payload.path,
+            "protocol": payload.protocol,
+        }
+    )
+    if normalized_tab is None:
+        raise HTTPException(status_code=400, detail="invalid tab payload")
+
+    with SESSIONS_LOCK:
+        sessions = _load_normalized_control_sessions()
+        session = next((row for row in sessions if row.get("name") == session_name), None)
+        if session is None:
+            raise HTTPException(status_code=404, detail="session not found")
+
+        machine = session.setdefault("machine", {})
+        if payload.machine_name:
+            machine["name"] = payload.machine_name
+        if payload.machine_host:
+            machine["host"] = payload.machine_host
+
+        tabs = session.setdefault("tabs", [])
+        match = None
+        requested_id = normalized_tab.get("id")
+        for tab in tabs:
+            if requested_id and tab.get("id") == requested_id:
+                match = tab
+                break
+            if tab.get("label") == normalized_tab.get("label"):
+                match = tab
+                break
+
+        action = "created"
+        if match is None:
+            tabs.append(normalized_tab)
+            match = normalized_tab
+        else:
+            match.update(normalized_tab)
+            action = "updated"
+
+        if payload.activate:
+            session["active_tab"] = str(match.get("id") or match.get("label"))
+
+        _save_normalized_control_sessions(sessions)
+
+    return {
+        "status": "ok",
+        "action": action,
+        "session": session,
+        "tab": match,
+    }
+
+
+@app.delete("/sessions/{session_name}/tabs")
+def delete_session_tab(session_name: str, payload: SessionTabDeleteRequest) -> dict[str, Any]:
+    _require_control_api()
+    if not payload.tab_id and not payload.label:
+        raise HTTPException(status_code=400, detail="tab_id or label is required")
+
+    with SESSIONS_LOCK:
+        sessions = _load_normalized_control_sessions()
+        session = next((row for row in sessions if row.get("name") == session_name), None)
+        if session is None:
+            raise HTTPException(status_code=404, detail="session not found")
+
+        tabs = session.setdefault("tabs", [])
+        target_index = next(
+            (
+                idx
+                for idx, tab in enumerate(tabs)
+                if (payload.tab_id and tab.get("id") == payload.tab_id)
+                or (payload.label and tab.get("label") == payload.label)
+            ),
+            None,
+        )
+        if target_index is None:
+            raise HTTPException(status_code=404, detail="tab not found")
+
+        removed = tabs.pop(target_index)
+        if session.get("active_tab") in {removed.get("id"), removed.get("label")}:
+            session.pop("active_tab", None)
+
+        _save_normalized_control_sessions(sessions)
+
+    return {
+        "status": "ok",
+        "removed": removed,
+        "session": session,
+    }
 
 
 @app.get("/panel/status")
@@ -672,6 +1302,7 @@ def panel_status(
 
 @app.get("/services")
 def services_status() -> dict[str, Any]:
+    _require_runtime_api()
     return _local_services_snapshot()
 
 
@@ -682,6 +1313,7 @@ def services_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=6553
 
 @app.post("/services/files/start")
 def start_files_service(payload: StartFilesServiceRequest) -> dict[str, Any]:
+    _require_runtime_api()
     return _start_files_service_local(payload.port)
 
 
@@ -692,6 +1324,7 @@ def start_files_service_proxy(payload: StartFilesServiceProxyRequest) -> dict[st
 
 @app.get("/tmux/sessions")
 def tmux_sessions() -> dict[str, Any]:
+    _require_runtime_api()
     return {
         "available": bool(shutil.which("tmux")),
         "sessions": _list_tmux_sessions(),
@@ -706,6 +1339,11 @@ def tmux_sessions_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le
 
 @app.get("/servers/proxy")
 def servers_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
+    return _fetch_remote_servers(host, port)
+
+
+@app.get("/machines/proxy")
+def machines_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
     return _fetch_remote_servers(host, port)
 
 
@@ -765,7 +1403,7 @@ def add_or_update_tab(payload: TabRequest) -> dict[str, Any]:
     protocol = _normalize_protocol(payload.protocol)
 
     with SERVERS_LOCK:
-        data = _load_servers()
+        data = _load_machine_inventory()
 
         server = next((s for s in data if s.get("name") == payload.server), None)
         if server is None:
@@ -804,7 +1442,7 @@ def add_or_update_tab(payload: TabRequest) -> dict[str, Any]:
             existing.update(panel)
             action = "updated"
 
-        _save_servers(data)
+        _save_machine_inventory(data)
 
     return {
         "status": "ok",
@@ -816,7 +1454,7 @@ def add_or_update_tab(payload: TabRequest) -> dict[str, Any]:
 @app.post("/remote")
 def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
     with SERVERS_LOCK:
-        data = _load_servers()
+        data = _load_machine_inventory()
         remote_index = next((i for i, s in enumerate(data) if s.get("name") == payload.name), None)
 
         if payload.action in {"remove", "remove_kill"}:
@@ -858,7 +1496,7 @@ def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
                         kill_result["status"] = "not_found"
                         kill_result["reason"] = "tmux session not found"
 
-            _save_servers(data)
+            _save_machine_inventory(data)
             response = {
                 "status": "ok",
                 "action": "removed",
@@ -914,7 +1552,7 @@ def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
                 data.append(data.pop(remote_index))
             action = "updated"
 
-        _save_servers(data)
+        _save_machine_inventory(data)
 
     return {
         "status": "ok",
@@ -927,7 +1565,7 @@ def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
 @app.post("/remote/reorder")
 def reorder_remotes(payload: ReorderRequest) -> dict[str, Any]:
     with SERVERS_LOCK:
-        data = _load_servers()
+        data = _load_machine_inventory()
         existing_names = [str(s.get("name", "")) for s in data]
 
         if len(payload.order) != len(existing_names):
@@ -937,7 +1575,7 @@ def reorder_remotes(payload: ReorderRequest) -> dict[str, Any]:
 
         by_name = {str(s.get("name", "")): s for s in data}
         reordered = [by_name[name] for name in payload.order]
-        _save_servers(reordered)
+        _save_machine_inventory(reordered)
 
     return {
         "status": "ok",
