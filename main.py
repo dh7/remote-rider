@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 app = FastAPI()
 HERE = Path(__file__).parent
 SERVERS_FILE = HERE / "servers.json"
+TEMPLATES_FILE = HERE / "session_templates.json"
 SERVERS_LOCK = threading.Lock()
 
 
@@ -77,6 +78,69 @@ def _load_servers() -> list[dict[str, Any]]:
 
 def _save_servers(servers: list[dict[str, Any]]) -> None:
     SERVERS_FILE.write_text(json.dumps(servers, indent=2) + "\n")
+
+
+def _default_templates() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "standard",
+            "label": "Standard",
+            "panels": [
+                {"label": "Terminal", "port": 7681},
+                {"label": "Monitor", "port": 8001},
+                {"label": "Logs", "port": 8002},
+                {"label": "Files", "port": 8080, "path": "/files"},
+            ],
+        },
+        {
+            "id": "ops",
+            "label": "Ops (no terminal)",
+            "panels": [
+                {"label": "Monitor", "port": 8001},
+                {"label": "Logs", "port": 8002},
+                {"label": "Files", "port": 8080, "path": "/files"},
+            ],
+        },
+    ]
+
+
+def _load_templates() -> list[dict[str, Any]]:
+    if not TEMPLATES_FILE.exists():
+        return _default_templates()
+    try:
+        data = json.loads(TEMPLATES_FILE.read_text())
+    except Exception:
+        return _default_templates()
+    if not isinstance(data, list):
+        return _default_templates()
+
+    out: list[dict[str, Any]] = []
+    for raw in data:
+        if not isinstance(raw, dict):
+            continue
+        tid = str(raw.get("id", "")).strip()
+        label = str(raw.get("label", tid)).strip()
+        panels = raw.get("panels")
+        if not tid or not isinstance(panels, list):
+            continue
+        normalized = []
+        for panel in panels:
+            if not isinstance(panel, dict):
+                continue
+            p_label = str(panel.get("label", "")).strip()
+            p_port = panel.get("port")
+            if not p_label or not isinstance(p_port, int):
+                continue
+            p_obj: dict[str, Any] = {"label": p_label, "port": p_port}
+            if panel.get("path"):
+                p_obj["path"] = str(panel.get("path"))
+            if panel.get("protocol"):
+                p_obj["protocol"] = str(panel.get("protocol"))
+            normalized.append(p_obj)
+        if normalized:
+            out.append({"id": tid, "label": label or tid, "panels": normalized})
+
+    return out or _default_templates()
 
 
 def _clone_panels(server: dict[str, Any]) -> list[dict[str, Any]]:
@@ -342,6 +406,11 @@ def index() -> str:
 @app.get("/servers")
 def servers() -> list[dict]:
     return _apply_port_overrides(_load_servers())
+
+
+@app.get("/session-templates")
+def session_templates() -> list[dict[str, Any]]:
+    return _load_templates()
 
 
 @app.get("/tmux/sessions")

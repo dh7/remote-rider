@@ -1,0 +1,21 @@
+[
+  {
+    "id": "standard",
+    "label": "Standard",
+    "panels": [
+      { "label": "Terminal", "port": 7681 },
+      { "label": "Monitor", "port": 8001 },
+      { "label": "Logs", "port": 8002 },
+      { "label": "Files", "port": 8080, "path": "/files" }
+    ]
+  },
+  {
+    "id": "ops",
+    "label": "Ops (no terminal)",
+    "panels": [
+      { "label": "Monitor", "port": 8001 },
+      { "label": "Logs", "port": 8002 },
+      { "label": "Files", "port": 8080, "path": "/files" }
+    ]
+  }
+]

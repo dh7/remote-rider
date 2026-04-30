@@ -142,6 +142,20 @@
       padding: 0.4rem 0.5rem;
       background: #111;
       border-bottom: 1px solid #2a2a4a;
+      align-items: center;
+    }
+    #add-tab-btn {
+      margin-left: auto;
+      background: #1a2137;
+      border: 1px solid #4c5a86;
+      color: #dbe4ff;
+      width: 1.7rem;
+      height: 1.5rem;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 0.95rem;
+      line-height: 0.9rem;
     }
     #frames { flex: 1; position: relative; }
     #frames iframe {
@@ -242,6 +256,60 @@
       font-family: monospace;
       font-size: 0.82rem;
     }
+    #panel-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(7, 8, 14, 0.72);
+      z-index: 25;
+      padding: 1rem;
+    }
+    #panel-modal.open { display: flex; }
+    #panel-card {
+      width: min(52rem, 100%);
+      max-height: 85vh;
+      overflow: auto;
+      background: #121628;
+      border: 1px solid #394160;
+      border-radius: 0.6rem;
+      padding: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+    }
+    #panel-card h2 {
+      font-size: 0.95rem;
+      color: #d7defa;
+      font-weight: bold;
+    }
+    .panel-row {
+      display: grid;
+      grid-template-columns: 1.2fr 0.7fr 1.2fr 0.8fr auto;
+      gap: 0.45rem;
+      margin-bottom: 0.4rem;
+    }
+    .panel-row input,
+    .panel-row select {
+      background: #161c2f;
+      border: 1px solid #414d77;
+      color: #eff3ff;
+      padding: 0.45rem 0.52rem;
+      border-radius: 0.3rem;
+      font-family: monospace;
+      min-width: 0;
+    }
+    #panel-actions-row,
+    #panel-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: flex-end;
+    }
+    @media (max-width: 900px) {
+      #sidebar { width: 220px; }
+      .panel-row { grid-template-columns: 1fr 1fr; }
+    }
     .muted-note { font-size: 0.72rem; color: #8f97b9; }
     .hidden { display: none !important; }
   </style>
@@ -273,10 +341,21 @@
           <label for="add-server-ip">New Server IP/Host</label>
           <input id="add-server-ip" type="text" placeholder="100.x.x.x or hostname">
         </div>
-        <div class="form-row">
-          <label for="add-base-select">Clone Panels From</label>
-          <select id="add-base-select"></select>
-        </div>
+      </div>
+
+      <div class="form-row">
+        <label for="add-template-select">Panel Template</label>
+        <select id="add-template-select"></select>
+      </div>
+
+      <div class="form-row">
+        <label for="add-panel-source">Panel Source</label>
+        <select id="add-panel-source"></select>
+      </div>
+
+      <div id="add-source-profile-wrap" class="form-row">
+        <label for="add-source-profile">Source Profile</label>
+        <select id="add-source-profile"></select>
       </div>
 
       <div id="add-known-server-wrap" class="form-row hidden">
@@ -316,6 +395,22 @@
     </div>
   </div>
 
+  <div id="panel-modal">
+    <div id="panel-card">
+      <h2>Session Setup</h2>
+      <div id="panel-target" class="muted-note"></div>
+      <div id="panel-list"></div>
+      <div id="panel-actions-row">
+        <button id="panel-add" class="secondary-btn" type="button">Add Panel</button>
+        <button id="panel-sync" class="secondary-btn" type="button">Sync From Remote</button>
+      </div>
+      <div id="panel-actions">
+        <button id="panel-cancel" class="secondary-btn" type="button">Cancel</button>
+        <button id="panel-save" class="primary-btn" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const UI_KEY = 'webterm-ui-state-v2';
     const PROFILES_KEY = 'webterm-profiles-v2';
@@ -334,6 +429,8 @@
       activeServer: null,
       activeTabByServer: {},
       tmuxSessions: [],
+      templates: [],
+      panelEditor: null,
     };
 
     const addModal = document.getElementById('add-modal');
@@ -342,13 +439,19 @@
     const addKnownServerWrap = document.getElementById('add-known-server-wrap');
     const addKnownServer = document.getElementById('add-known-server');
     const addServerIp = document.getElementById('add-server-ip');
-    const addBaseSelect = document.getElementById('add-base-select');
+    const addTemplateSelect = document.getElementById('add-template-select');
+    const addPanelSource = document.getElementById('add-panel-source');
+    const addSourceProfileWrap = document.getElementById('add-source-profile-wrap');
+    const addSourceProfile = document.getElementById('add-source-profile');
     const addLabel = document.getElementById('add-label');
     const addExistingWrap = document.getElementById('add-existing-wrap');
     const addExistingSession = document.getElementById('add-existing-session');
     const addNewSessionWrap = document.getElementById('add-new-session-wrap');
     const addNewSession = document.getElementById('add-new-session');
     const addNote = document.getElementById('add-note');
+    const panelModal = document.getElementById('panel-modal');
+    const panelTarget = document.getElementById('panel-target');
+    const panelList = document.getElementById('panel-list');
 
     function loadUIState() {
       try {
@@ -504,6 +607,39 @@
         .filter((p) => p.label && p.port > 0);
     }
 
+    function defaultTemplates() {
+      return [
+        {
+          id: 'standard',
+          label: 'Standard',
+          panels: [
+            { label: 'Terminal', port: 7681 },
+            { label: 'Monitor', port: 8001 },
+            { label: 'Logs', port: 8002 },
+            { label: 'Files', port: 8080, path: '/files' },
+          ],
+        },
+      ];
+    }
+
+    async function loadSessionTemplates() {
+      try {
+        const payload = await fetch('/session-templates').then((r) => r.json());
+        if (!Array.isArray(payload) || !payload.length) {
+          state.templates = defaultTemplates();
+          return;
+        }
+        state.templates = payload.map((item) => ({
+          id: String(item.id || ''),
+          label: String(item.label || item.id || 'Template'),
+          panels: normalizePanels(item.panels || []),
+        })).filter((item) => item.id && item.panels.length);
+        if (!state.templates.length) state.templates = defaultTemplates();
+      } catch (_) {
+        state.templates = defaultTemplates();
+      }
+    }
+
     async function fetchServerPanels(host) {
       const query = new URLSearchParams({ host: host || '127.0.0.1', port: '7000' }).toString();
       try {
@@ -616,6 +752,105 @@
       renderSidebar();
     }
 
+    function renderPanelEditorRows() {
+      const rows = (state.panelEditor && state.panelEditor.panels) ? state.panelEditor.panels : [];
+      panelList.innerHTML = '';
+      rows.forEach((panel, idx) => {
+        const row = document.createElement('div');
+        row.className = 'panel-row';
+
+        const label = document.createElement('input');
+        label.type = 'text';
+        label.value = panel.label || '';
+        label.placeholder = 'Label';
+        label.oninput = () => { panel.label = label.value; };
+
+        const port = document.createElement('input');
+        port.type = 'number';
+        port.min = '1';
+        port.max = '65535';
+        port.value = String(panel.port || '');
+        port.placeholder = 'Port';
+        port.oninput = () => { panel.port = Number(port.value || 0); };
+
+        const path = document.createElement('input');
+        path.type = 'text';
+        path.value = panel.path || '';
+        path.placeholder = '/path';
+        path.oninput = () => { panel.path = path.value; };
+
+        const protocol = document.createElement('select');
+        const p1 = document.createElement('option');
+        p1.value = 'http';
+        p1.textContent = 'http';
+        const p2 = document.createElement('option');
+        p2.value = 'https';
+        p2.textContent = 'https';
+        protocol.appendChild(p1);
+        protocol.appendChild(p2);
+        protocol.value = panel.protocol || 'http';
+        protocol.onchange = () => { panel.protocol = protocol.value; };
+
+        const del = document.createElement('button');
+        del.className = 'icon-btn';
+        del.textContent = 'X';
+        del.title = 'Remove panel';
+        del.onclick = () => {
+          state.panelEditor.panels.splice(idx, 1);
+          renderPanelEditorRows();
+        };
+
+        row.appendChild(label);
+        row.appendChild(port);
+        row.appendChild(path);
+        row.appendChild(protocol);
+        row.appendChild(del);
+        panelList.appendChild(row);
+      });
+    }
+
+    function openPanelModal(server) {
+      state.panelEditor = {
+        name: server.name,
+        panels: normalizePanels(clonePanels(server)),
+      };
+      panelTarget.textContent = `${displayName(server)} (${profileNetworkHost(server) || server.ip || 'unknown-host'})`;
+      renderPanelEditorRows();
+      panelModal.classList.add('open');
+    }
+
+    function closePanelModal() {
+      panelModal.classList.remove('open');
+      state.panelEditor = null;
+    }
+
+    async function syncPanelEditorFromRemote() {
+      if (!state.panelEditor) return;
+      const server = state.servers.find((s) => s.name === state.panelEditor.name);
+      if (!server) return;
+      const host = profileNetworkHost(server) || server.ip;
+      const remotePanels = await fetchServerPanels(host);
+      if (!remotePanels || !remotePanels.length) {
+        alert(`Could not fetch remote panels from ${host}.`);
+        return;
+      }
+      const session = terminalSessionForServer(server);
+      state.panelEditor.panels = normalizePanels(remotePanels);
+      const tempProfile = { panels: state.panelEditor.panels };
+      setTerminalSession(tempProfile, session);
+      renderPanelEditorRows();
+    }
+
+    function savePanelEditor() {
+      if (!state.panelEditor) return;
+      const server = state.servers.find((s) => s.name === state.panelEditor.name);
+      if (!server) return;
+      server.panels = normalizePanels(state.panelEditor.panels);
+      saveProfiles();
+      closePanelModal();
+      reloadServers(server.name);
+    }
+
     async function refreshTmuxSessions(host) {
       const query = new URLSearchParams({ host: host || '127.0.0.1', port: '7000' }).toString();
       try {
@@ -666,6 +901,11 @@
       addKnownServerWrap.classList.toggle('hidden', !isNew);
     }
 
+    function updatePanelSourceVisibility() {
+      const useProfile = addPanelSource.value === 'profile';
+      addSourceProfileWrap.classList.toggle('hidden', !useProfile);
+    }
+
     function populateKnownServerOptions(defaultIp) {
       addKnownServer.innerHTML = '';
       const manual = document.createElement('option');
@@ -687,7 +927,26 @@
     async function populateServerChoices() {
       const current = state.servers.find((s) => s.name === state.activeServer) || state.servers[0];
       addServerSelect.innerHTML = '';
-      addBaseSelect.innerHTML = '';
+      addTemplateSelect.innerHTML = '';
+      addPanelSource.innerHTML = '';
+      addSourceProfile.innerHTML = '';
+
+      const sourceTemplateOpt = document.createElement('option');
+      sourceTemplateOpt.value = 'template';
+      sourceTemplateOpt.textContent = 'Template';
+      addPanelSource.appendChild(sourceTemplateOpt);
+
+      const sourceProfileOpt = document.createElement('option');
+      sourceProfileOpt.value = 'profile';
+      sourceProfileOpt.textContent = 'Existing server profile';
+      addPanelSource.appendChild(sourceProfileOpt);
+
+      state.templates.forEach((tpl) => {
+        const opt = document.createElement('option');
+        opt.value = tpl.id;
+        opt.textContent = tpl.label;
+        addTemplateSelect.appendChild(opt);
+      });
 
       state.servers.forEach((server) => {
         const resolved = profileNetworkHost(server) || server.ip || 'unknown-host';
@@ -698,10 +957,11 @@
         opt.textContent = text;
         addServerSelect.appendChild(opt);
 
-        const baseOpt = document.createElement('option');
-        baseOpt.value = server.name;
-        baseOpt.textContent = text;
-        addBaseSelect.appendChild(baseOpt);
+        const sourceOpt = document.createElement('option');
+        sourceOpt.value = server.name;
+        sourceOpt.textContent = text;
+        addSourceProfile.appendChild(sourceOpt);
+
       });
 
       const newOpt = document.createElement('option');
@@ -712,15 +972,19 @@
       if (current) {
         const host = profileNetworkHost(current) || current.ip || '127.0.0.1';
         addServerSelect.value = current.name;
-        addBaseSelect.value = current.name;
         addServerIp.value = host;
         addLabel.value = displayName(current);
+        addSourceProfile.value = current.name;
         populateKnownServerOptions(host);
         await refreshTmuxSessions(host);
         const defaultSession = terminalSessionForServer(current);
         fillTmuxOptions(defaultSession);
         addNewSession.value = defaultSession === '1' ? 'job1' : `${defaultSession}-copy`;
       }
+
+      if (addTemplateSelect.options.length) addTemplateSelect.value = addTemplateSelect.options[0].value;
+      addPanelSource.value = 'profile';
+      updatePanelSourceVisibility();
 
       updateServerChoiceVisibility();
       updateSessionSourceVisibility();
@@ -747,9 +1011,14 @@
       const isNew = selected === '__new__';
       const session = selectedTmuxSession();
       const label = (addLabel.value.trim() || 'session');
+      const selectedTemplate = state.templates.find((t) => t.id === addTemplateSelect.value) || state.templates[0];
+      const templatePanels = selectedTemplate ? normalizePanels(selectedTemplate.panels) : [];
+      const panelSource = addPanelSource.value || 'profile';
+      const sourceProfile = state.servers.find((s) => s.name === addSourceProfile.value) || state.servers[0];
+      const profilePanels = sourceProfile ? normalizePanels(clonePanels(sourceProfile)) : [];
 
-      let baseProfile;
       let targetHost;
+      let nameSeed = 'session';
 
       if (isNew) {
         targetHost = addServerIp.value.trim();
@@ -757,19 +1026,21 @@
           alert('Please set the server IP/host.');
           return;
         }
-        baseProfile = state.servers.find((s) => s.name === addBaseSelect.value) || state.servers[0];
+        nameSeed = label;
       } else {
-        baseProfile = state.servers.find((s) => s.name === selected);
-        if (!baseProfile) return;
-        targetHost = profileNetworkHost(baseProfile) || baseProfile.ip;
+        const selectedProfile = state.servers.find((s) => s.name === selected);
+        if (!selectedProfile) return;
+        targetHost = profileNetworkHost(selectedProfile) || selectedProfile.ip;
+        nameSeed = selectedProfile.name;
       }
 
       const newProfile = {
-        name: makeUniqueName(`${baseProfile.name}-${label}-${session}`),
+        name: makeUniqueName(`${nameSeed}-${label}-${session}`),
         display: label,
         ip: targetHost,
-        panels: clonePanels(baseProfile),
+        panels: panelSource === 'template' ? templatePanels : profilePanels,
       };
+      if (!newProfile.panels.length) newProfile.panels = templatePanels;
 
       const remotePanels = await fetchServerPanels(targetHost);
       if (remotePanels && remotePanels.length) {
@@ -873,6 +1144,12 @@
         rename.title = 'Rename session label';
         rename.onclick = (e) => { e.stopPropagation(); renameSession(server); };
 
+        const setup = document.createElement('button');
+        setup.className = 'icon-btn';
+        setup.textContent = 'S';
+        setup.title = 'Setup panels';
+        setup.onclick = (e) => { e.stopPropagation(); openPanelModal(server); };
+
         const del = document.createElement('button');
         del.className = 'icon-btn';
         del.textContent = 'X';
@@ -902,6 +1179,7 @@
         };
 
         actions.appendChild(rename);
+        actions.appendChild(setup);
         actions.appendChild(del);
         actions.appendChild(kill);
         actions.appendChild(drag);
@@ -917,6 +1195,12 @@
       tabs.innerHTML = '';
 
       if (!server.panels || server.panels.length === 0) {
+        const addTabBtn = document.createElement('button');
+        addTabBtn.id = 'add-tab-btn';
+        addTabBtn.title = 'Add panel tab';
+        addTabBtn.textContent = '+';
+        addTabBtn.onclick = () => openPanelModal(server);
+        tabs.appendChild(addTabBtn);
         delete state.activeTabByServer[server.name];
         saveUIState();
         activateFrame('');
@@ -954,6 +1238,13 @@
         selectedLabel = server.panels[0].label;
       }
 
+      const addTabBtn = document.createElement('button');
+      addTabBtn.id = 'add-tab-btn';
+      addTabBtn.title = 'Add panel tab';
+      addTabBtn.textContent = '+';
+      addTabBtn.onclick = () => openPanelModal(server);
+      tabs.appendChild(addTabBtn);
+
       state.activeTabByServer[server.name] = selectedLabel;
       saveUIState();
       activateFrame(selectedFrameId);
@@ -961,11 +1252,20 @@
 
     async function init() {
       loadUIState();
+      await loadSessionTemplates();
       await loadProfilesFromBootstrap();
 
       document.getElementById('add-session-btn').onclick = openAddModal;
       document.getElementById('add-cancel').onclick = closeAddModal;
       document.getElementById('add-submit').onclick = submitAddModal;
+      document.getElementById('panel-cancel').onclick = closePanelModal;
+      document.getElementById('panel-save').onclick = savePanelEditor;
+      document.getElementById('panel-sync').onclick = syncPanelEditorFromRemote;
+      document.getElementById('panel-add').onclick = () => {
+        if (!state.panelEditor) return;
+        state.panelEditor.panels.push({ label: 'Panel', port: 9000, path: '/', protocol: 'http' });
+        renderPanelEditorRows();
+      };
 
       addServerSelect.addEventListener('change', async () => {
         updateServerChoiceVisibility();
@@ -974,15 +1274,14 @@
           if (server) {
             const host = profileNetworkHost(server) || server.ip || '127.0.0.1';
             addLabel.value = displayName(server);
+            addSourceProfile.value = server.name;
             addServerIp.value = host;
             populateKnownServerOptions(host);
             await refreshTmuxSessions(host);
             fillTmuxOptions(terminalSessionForServer(server));
           }
         } else {
-          const baseServer = state.servers.find((s) => s.name === addBaseSelect.value)
-            || state.servers.find((s) => s.name === state.activeServer)
-            || state.servers[0];
+          const baseServer = state.servers.find((s) => s.name === state.activeServer) || state.servers[0];
           const suggestedHost = baseServer ? (profileNetworkHost(baseServer) || baseServer.ip || '') : '';
           addServerIp.value = suggestedHost;
           if (!addLabel.value.trim()) addLabel.value = baseServer ? displayName(baseServer) : '';
@@ -992,6 +1291,8 @@
         }
         updateSessionSourceVisibility();
       });
+
+      addPanelSource.addEventListener('change', updatePanelSourceVisibility);
 
       addKnownServer.addEventListener('change', async () => {
         if (addKnownServer.value) {
@@ -1011,9 +1312,13 @@
       addModal.addEventListener('click', (e) => {
         if (e.target === addModal) closeAddModal();
       });
+      panelModal.addEventListener('click', (e) => {
+        if (e.target === panelModal) closePanelModal();
+      });
 
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && addModal.classList.contains('open')) closeAddModal();
+        if (e.key === 'Escape' && panelModal.classList.contains('open')) closePanelModal();
       });
 
       reloadServers(state.activeServer);
