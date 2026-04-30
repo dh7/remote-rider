@@ -27,6 +27,28 @@ STYLE = """
 
   .crumbs { white-space: nowrap; overflow-x: auto; overflow-y: hidden; }
   .crumbs a { display: inline; padding: 0; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .btn {
+    background: #2f446f;
+    color: #fff;
+    border: none;
+    padding: 0.42rem 0.78rem;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 0.84rem;
+  }
+  .btn:hover { filter: brightness(1.12); }
 
   .dir { color: #fa0; }
   .dir-hidden { color: #666; }
@@ -287,7 +309,7 @@ def breadcrumbs(path: str) -> str:
     for part in parts:
         acc /= part
         crumbs.append(f'/ <a href="/files?path={_q(str(acc))}">{escape(part)}</a>')
-    return f'<div class="crumbs">{" ".join(crumbs)}</div><hr>'
+    return f'<div class="crumbs">{" ".join(crumbs)}</div>'
 
 
 @app.get("/files", response_class=HTMLResponse)
@@ -311,7 +333,15 @@ def browse(request: Request, path: str = "") -> HTMLResponse:
 
     statuses = _git_status_map(target)
     entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-    items = breadcrumbs(path)
+    path_js = json.dumps(path)
+    items = (
+        '<div class="topbar">'
+        f'{breadcrumbs(path)}'
+        '<div class="toolbar-actions">'
+        f'<button class="btn" type="button" onclick="createFile({path_js})">Create File</button>'
+        '</div>'
+        '</div><hr>'
+    )
 
     if path:
         parent = str(Path(path).parent) if Path(path).parent != Path(path) else ""
@@ -334,7 +364,29 @@ def browse(request: Request, path: str = "") -> HTMLResponse:
             klass = "file-hidden" if entry.name.startswith(".") else "file"
             items += f'<a class="entry-row {klass}" href="/edit?path={_q(rel)}">{badge}{name}</a>'
 
-    response = HTMLResponse(f"<html><head>{STYLE}</head><body>{items}</body></html>")
+    script = """
+    <script>
+      async function createFile(currentPath) {
+        const name = prompt('New file path or name:');
+        if (name === null) return;
+        const cleaned = name.trim();
+        if (!cleaned) return;
+        const res = await fetch('/create-file?path=' + encodeURIComponent(currentPath), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ new_path: cleaned }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+        const payload = await res.json();
+        window.location.href = '/edit?path=' + encodeURIComponent(payload.path);
+      }
+    </script>
+    """
+    response = HTMLResponse(f"<html><head>{STYLE}</head><body>{items}{script}</body></html>")
     _set_context_cookies(response, view="files", dir_path=path)
     return response
 
@@ -923,6 +975,28 @@ def delete_file(path: str) -> HTMLResponse:
         raise HTTPException(status_code=404, detail="File not found")
     target.unlink()
     return HTMLResponse("ok")
+
+
+@app.post("/create-file")
+async def create_file(path: str, request: Request) -> dict[str, str]:
+    directory = _safe(path)
+    if not directory.exists() or not directory.is_dir():
+        raise HTTPException(status_code=404, detail="Directory not found")
+
+    payload = await _read_payload(request)
+    new_path = payload.get("new_path", "").strip()
+    if not new_path:
+        raise HTTPException(status_code=400, detail="new_path is required")
+
+    target = _safe(str(Path(path) / new_path))
+    if target.exists():
+        raise HTTPException(status_code=400, detail="File already exists")
+    if target.suffix == "" and new_path.endswith("/"):
+        raise HTTPException(status_code=400, detail="Use a file path, not a directory")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("")
+    return {"status": "ok", "path": _rel(target)}
 
 
 @app.get("/raw")
