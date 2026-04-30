@@ -130,6 +130,10 @@ class RemoteUpdateProxyRequest(RemoteUpdateRequest):
     hub_port: int = Field(default=7000, ge=1, le=65535)
 
 
+class UpdateAllRemotesRequest(RemoteUpdateRequest):
+    machines: list[str] | None = None
+
+
 def _normalize_path(path: str) -> str:
     cleaned = (path or "/").strip()
     if not cleaned:
@@ -858,6 +862,10 @@ def _schedule_remote_update_proxy(payload: RemoteUpdateProxyRequest) -> dict[str
         }
 
 
+def _machine_host_from_inventory(machine: dict[str, Any]) -> str:
+    return str(machine.get("ip", "")).strip()
+
+
 def _is_port_busy_for_bind(port: int, bind_host: str = "0.0.0.0") -> bool:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -1117,6 +1125,7 @@ Runtime:
 - stop remote agent: POST {base}/agents/stop/proxy
 - schedule local remote-stack update: POST {base}/admin/update-remote
 - schedule proxied remote-stack update: POST {base}/admin/update-remote/proxy
+- schedule fleet remote-stack update: POST {base}/admin/update-all-remotes
 - machine panels by host: GET {base}/machines/proxy?host=<ip>&port=7000
 - legacy machine-panels alias: GET {base}/servers/proxy?host=<ip>&port=7000
 - kill tmux session: POST {base}/tmux/kill
@@ -1145,6 +1154,10 @@ curl -X POST {base}/agents/start/proxy \
 curl -X POST {base}/admin/update-remote/proxy \
   -H 'content-type: application/json' \
   -d '{{"host":"100.119.43.10","branch":"main"}}'
+
+curl -X POST {base}/admin/update-all-remotes \
+  -H 'content-type: application/json' \
+  -d '{{"branch":"main"}}'
 """
 
 
@@ -1271,6 +1284,38 @@ def admin_update_remote(payload: RemoteUpdateRequest) -> dict[str, Any]:
 @app.post("/admin/update-remote/proxy")
 def admin_update_remote_proxy(payload: RemoteUpdateProxyRequest) -> dict[str, Any]:
     return _schedule_remote_update_proxy(payload)
+
+
+@app.post("/admin/update-all-remotes")
+def admin_update_all_remotes(payload: UpdateAllRemotesRequest) -> dict[str, Any]:
+    _require_control_api()
+    machines = _load_machine_inventory()
+    selected = set(payload.machines or [])
+    results: list[dict[str, Any]] = []
+
+    for machine in machines:
+      name = str(machine.get("name", "")).strip()
+      host = _machine_host_from_inventory(machine)
+      if not name or not host:
+          continue
+      if selected and name not in selected:
+          continue
+      result = _schedule_remote_update_proxy(
+          RemoteUpdateProxyRequest(
+              host=host,
+              hub_port=7000,
+              branch=payload.branch,
+          )
+      )
+      result.setdefault("machine", name)
+      result.setdefault("host", host)
+      results.append(result)
+
+    return {
+        "status": "ok",
+        "branch": payload.branch,
+        "results": results,
+    }
 
 
 @app.post("/sessions/{session_name}/tabs")
