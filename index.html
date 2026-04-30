@@ -177,9 +177,22 @@
       cursor: pointer;
       font-family: monospace;
       font-size: 0.8rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
     }
     .tab-btn.active { background: #2a2a5a; color: #fff; border-color: #66f; }
     .tab-btn:hover { background: #1a1a3a; }
+    .tab-dot {
+      width: 0.48rem;
+      height: 0.48rem;
+      border-radius: 50%;
+      display: inline-block;
+      border: 1px solid rgba(0, 0, 0, 0.45);
+    }
+    .tab-dot.unknown { background: #7d85a4; }
+    .tab-dot.up { background: #5bc16f; }
+    .tab-dot.down { background: #d35d5d; }
 
     #add-modal {
       position: fixed;
@@ -343,7 +356,7 @@
         </div>
       </div>
 
-      <div class="form-row">
+      <div id="add-template-wrap" class="form-row">
         <label for="add-template-select">Panel Template</label>
         <select id="add-template-select"></select>
       </div>
@@ -403,6 +416,7 @@
       <div id="panel-actions-row">
         <button id="panel-add" class="secondary-btn" type="button">Add Panel</button>
         <button id="panel-sync" class="secondary-btn" type="button">Sync From Remote</button>
+        <button id="panel-launch-files" class="secondary-btn" type="button">Launch Files Service</button>
       </div>
       <div id="panel-actions">
         <button id="panel-cancel" class="secondary-btn" type="button">Cancel</button>
@@ -439,6 +453,7 @@
     const addKnownServerWrap = document.getElementById('add-known-server-wrap');
     const addKnownServer = document.getElementById('add-known-server');
     const addServerIp = document.getElementById('add-server-ip');
+    const addTemplateWrap = document.getElementById('add-template-wrap');
     const addTemplateSelect = document.getElementById('add-template-select');
     const addPanelSource = document.getElementById('add-panel-source');
     const addSourceProfileWrap = document.getElementById('add-source-profile-wrap');
@@ -567,6 +582,22 @@
       const mapped = homelabIpForName(displayName(server)) || homelabIpForName(server.name);
       if (isLocalHost(server.ip) && mapped) return mapped;
       return server.ip || mapped || '';
+    }
+
+    async function probePanelStatus(server, panel) {
+      const host = profileNetworkHost(server) || server.ip || '127.0.0.1';
+      const query = new URLSearchParams({ host, port: String(panel.port), timeout_ms: '650' }).toString();
+      try {
+        const payload = await fetch(`/panel/status?${query}`).then((r) => r.json());
+        return {
+          up: Boolean(payload.up),
+          latency: Number(payload.latency_ms || 0),
+          error: payload.error ? String(payload.error) : '',
+          host,
+        };
+      } catch (err) {
+        return { up: false, latency: 0, error: String(err.message || err), host };
+      }
     }
 
     function colorForServer(server) {
@@ -841,6 +872,62 @@
       renderPanelEditorRows();
     }
 
+    async function launchFilesServiceFromPanelEditor() {
+      if (!state.panelEditor) return;
+      const server = state.servers.find((s) => s.name === state.panelEditor.name);
+      if (!server) return;
+
+      const host = profileNetworkHost(server) || server.ip || '127.0.0.1';
+      const rawPort = prompt('Start fileserver on port (blank = auto pick):', '');
+      if (rawPort === null) return;
+
+      let requestedPort = null;
+      if (rawPort.trim()) {
+        const parsed = Number(rawPort.trim());
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+          alert('Invalid port. Use a number between 1 and 65535.');
+          return;
+        }
+        requestedPort = parsed;
+      }
+
+      const payload = {
+        host,
+        hub_port: 7000,
+        port: requestedPort,
+      };
+
+      let res;
+      try {
+        res = await fetch('/services/files/start/proxy', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        }).then((r) => r.json());
+      } catch (err) {
+        alert(`Failed to start files service: ${err.message}`);
+        return;
+      }
+
+      if (!res || res.status !== 'ok' || !res.service || !res.service.port) {
+        alert(`Could not start files service on ${host}: ${res?.reason || 'unknown error'}`);
+        return;
+      }
+
+      const filesPort = Number(res.service.port);
+      const filesPanel = state.panelEditor.panels.find((p) => p.label === 'Files');
+      if (filesPanel) {
+        filesPanel.port = filesPort;
+        filesPanel.path = '/files';
+        filesPanel.protocol = 'http';
+      } else {
+        state.panelEditor.panels.push({ label: 'Files', port: filesPort, path: '/files', protocol: 'http' });
+      }
+
+      renderPanelEditorRows();
+      alert(`Files service started on ${host}:${filesPort} and wired into this session.`);
+    }
+
     function savePanelEditor() {
       if (!state.panelEditor) return;
       const server = state.servers.find((s) => s.name === state.panelEditor.name);
@@ -903,6 +990,7 @@
 
     function updatePanelSourceVisibility() {
       const useProfile = addPanelSource.value === 'profile';
+      addTemplateWrap.classList.toggle('hidden', useProfile);
       addSourceProfileWrap.classList.toggle('hidden', !useProfile);
     }
 
@@ -1216,7 +1304,13 @@
         const frameId = frame.id;
         const btn = document.createElement('button');
         btn.className = 'tab-btn';
-        btn.textContent = panel.label;
+        const dot = document.createElement('span');
+        dot.className = 'tab-dot unknown';
+        dot.title = 'Checking panel health...';
+        const text = document.createElement('span');
+        text.textContent = panel.label;
+        btn.appendChild(dot);
+        btn.appendChild(text);
         btn.onclick = () => {
           document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
           btn.classList.add('active');
@@ -1225,6 +1319,16 @@
           activateFrame(frameId);
         };
         tabs.appendChild(btn);
+
+        probePanelStatus(server, panel).then((status) => {
+          dot.classList.remove('unknown', 'up', 'down');
+          dot.classList.add(status.up ? 'up' : 'down');
+          if (status.up) {
+            dot.title = `${panel.label} up on ${status.host}:${panel.port} (${status.latency}ms)`;
+          } else {
+            dot.title = `${panel.label} down on ${status.host}:${panel.port}${status.error ? ` (${status.error})` : ''}`;
+          }
+        });
 
         if ((savedLabel && savedLabel === panel.label) || (!savedLabel && i === 0)) {
           selectedFrameId = frameId;
@@ -1261,6 +1365,7 @@
       document.getElementById('panel-cancel').onclick = closePanelModal;
       document.getElementById('panel-save').onclick = savePanelEditor;
       document.getElementById('panel-sync').onclick = syncPanelEditorFromRemote;
+      document.getElementById('panel-launch-files').onclick = launchFilesServiceFromPanelEditor;
       document.getElementById('panel-add').onclick = () => {
         if (!state.panelEditor) return;
         state.panelEditor.panels.push({ label: 'Panel', port: 9000, path: '/', protocol: 'http' });

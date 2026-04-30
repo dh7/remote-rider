@@ -153,6 +153,9 @@ FILES_PORT="$(choose_port files "$FILES_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOG
 HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT" "$FILES_PORT")"
 
 export TERM_PORT MONITOR_PORT LOGS_PORT FILES_PORT
+export HUB_PORT
+export BIND_HOST="$HOST"
+export PUBLIC_HOST="$HOST"
 
 if [[ -n "$TTYD_BIN" ]]; then
   "$TTYD_BIN" -W -a -i "$HOST" -p "$TERM_PORT" ./terminal-entry.sh > "$LOG_DIR/ttyd.log" 2>&1 &

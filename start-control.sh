@@ -26,6 +26,10 @@ fi
 HOST="${TAILSCALE_IP:-127.0.0.1}"
 PORT="7000"
 
+export BIND_HOST="$HOST"
+export PUBLIC_HOST="$HOST"
+export HUB_PORT="$PORT"
+
 stop_hub() {
   local file="$PID_DIR/hub.pid"
   if [[ -f "$file" ]]; then

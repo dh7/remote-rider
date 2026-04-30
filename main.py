@@ -4,6 +4,7 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
@@ -19,7 +20,9 @@ app = FastAPI()
 HERE = Path(__file__).parent
 SERVERS_FILE = HERE / "servers.json"
 TEMPLATES_FILE = HERE / "session_templates.json"
+SERVICE_REGISTRY_FILE = HERE / "service_registry.json"
 SERVERS_LOCK = threading.Lock()
+SERVICE_LOCK = threading.Lock()
 
 
 class TabRequest(BaseModel):
@@ -49,6 +52,16 @@ class TmuxKillRequest(BaseModel):
     host: str
     session: str = Field(min_length=1, max_length=120)
     port: int = Field(default=7000, ge=1, le=65535)
+
+
+class StartFilesServiceRequest(BaseModel):
+    port: int | None = Field(default=None, ge=1, le=65535)
+
+
+class StartFilesServiceProxyRequest(BaseModel):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)
+    port: int | None = Field(default=None, ge=1, le=65535)
 
 
 def _normalize_path(path: str) -> str:
@@ -341,6 +354,231 @@ def _apply_port_overrides(servers: list[dict[str, Any]]) -> list[dict[str, Any]]
     return overridden
 
 
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _load_service_registry() -> list[dict[str, Any]]:
+    if not SERVICE_REGISTRY_FILE.exists():
+        return []
+    try:
+        data = json.loads(SERVICE_REGISTRY_FILE.read_text())
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [row for row in data if isinstance(row, dict)]
+
+
+def _save_service_registry(rows: list[dict[str, Any]]) -> None:
+    SERVICE_REGISTRY_FILE.write_text(json.dumps(rows, indent=2) + "\n")
+
+
+def _cleanup_service_registry(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    alive: list[dict[str, Any]] = []
+    for row in rows:
+        pid = row.get("pid")
+        if isinstance(pid, int) and _pid_alive(pid):
+            alive.append(row)
+    return alive
+
+
+def _is_port_busy_for_bind(port: int, bind_host: str = "0.0.0.0") -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((bind_host, port))
+        return False
+    except OSError:
+        return True
+    finally:
+        sock.close()
+
+
+def _pick_free_port(preferred: int, bind_host: str = "0.0.0.0") -> int:
+    port = preferred
+    while _is_port_busy_for_bind(port, bind_host=bind_host):
+        port += 1
+    return port
+
+
+def _probe_panel_port(host: str, port: int, timeout_ms: int = 650) -> dict[str, Any]:
+    started = time.perf_counter()
+    try:
+        with socket.create_connection((host, port), timeout=timeout_ms / 1000):
+            pass
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return {"up": True, "latency_ms": elapsed_ms}
+    except Exception as exc:
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return {"up": False, "latency_ms": elapsed_ms, "error": str(exc)}
+
+
+def _service_entry(name: str, port: int, *, enabled: bool = True, pid: int | None = None) -> dict[str, Any]:
+    host_for_probe = "127.0.0.1"
+    if enabled:
+        probe = _probe_panel_port(host_for_probe, port)
+    else:
+        probe = {"up": False, "error": "disabled"}
+    return {
+        "name": name,
+        "port": port,
+        "enabled": enabled,
+        "pid": pid,
+        "up": bool(probe.get("up", False)),
+        "latency_ms": probe.get("latency_ms"),
+        "error": probe.get("error"),
+    }
+
+
+def _local_services_snapshot() -> dict[str, Any]:
+    term_enabled = os.getenv("DISABLE_TERMINAL") != "1"
+    services = [
+        _service_entry("terminal", int(os.getenv("TERM_PORT", "7681")), enabled=term_enabled),
+        _service_entry("monitor", int(os.getenv("MONITOR_PORT", "8001"))),
+        _service_entry("logs", int(os.getenv("LOGS_PORT", "8002"))),
+        _service_entry("files", int(os.getenv("FILES_PORT", "8080"))),
+        _service_entry("hub", int(os.getenv("HUB_PORT", "7000"))),
+    ]
+
+    with SERVICE_LOCK:
+        rows = _cleanup_service_registry(_load_service_registry())
+        _save_service_registry(rows)
+        for row in rows:
+            if str(row.get("kind")) != "fileserver":
+                continue
+            try:
+                port = int(row.get("port", 0))
+            except Exception:
+                continue
+            if port <= 0:
+                continue
+            pid = row.get("pid") if isinstance(row.get("pid"), int) else None
+            services.append(
+                _service_entry(
+                    str(row.get("name", "files-extra")),
+                    port,
+                    enabled=True,
+                    pid=pid,
+                )
+            )
+
+    return {
+        "host": socket.gethostname(),
+        "source": "local",
+        "services": services,
+    }
+
+
+def _start_files_service_local(preferred_port: int | None) -> dict[str, Any]:
+    venv_uvicorn = HERE / ".venv" / "bin" / "uvicorn"
+    if not venv_uvicorn.exists():
+        return {
+            "status": "error",
+            "reason": f"missing {venv_uvicorn}",
+        }
+
+    bind_host = os.getenv("BIND_HOST", "0.0.0.0")
+    wanted = preferred_port if preferred_port is not None else int(os.getenv("FILES_PORT", "8080")) + 1
+    port = _pick_free_port(wanted, bind_host=bind_host)
+
+    log_dir = HERE / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"fileserver-{port}.log"
+    log_handle = log_path.open("a")
+
+    proc = subprocess.Popen(
+        [
+            str(venv_uvicorn),
+            "fileserver:app",
+            "--host",
+            bind_host,
+            "--port",
+            str(port),
+        ],
+        cwd=str(HERE),
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
+    )
+    log_handle.close()
+
+    row = {
+        "kind": "fileserver",
+        "name": f"files-{port}",
+        "port": port,
+        "pid": proc.pid,
+        "started_at": int(time.time()),
+    }
+
+    with SERVICE_LOCK:
+        rows = _cleanup_service_registry(_load_service_registry())
+        rows.append(row)
+        _save_service_registry(rows)
+
+    return {
+        "status": "ok",
+        "service": row,
+        "bind_host": bind_host,
+        "url": f"http://{bind_host}:{port}/files",
+    }
+
+
+def _fetch_remote_services(host: str, port: int) -> dict[str, Any]:
+    cleaned_host = _normalize_host(host)
+    if _is_local_host(cleaned_host):
+        return _local_services_snapshot()
+
+    url = f"http://{cleaned_host}:{port}/services"
+    req = UrlRequest(url, method="GET")
+    try:
+        with urlopen(req, timeout=3) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response shape")
+            payload.setdefault("source", "proxy")
+            payload.setdefault("host", cleaned_host)
+            return payload
+    except Exception as exc:
+        return {
+            "host": cleaned_host,
+            "source": "proxy",
+            "services": [],
+            "error": str(exc),
+        }
+
+
+def _start_remote_files_service(host: str, hub_port: int, preferred_port: int | None) -> dict[str, Any]:
+    cleaned_host = _normalize_host(host)
+    if _is_local_host(cleaned_host):
+        return _start_files_service_local(preferred_port)
+
+    url = f"http://{cleaned_host}:{hub_port}/services/files/start"
+    body = json.dumps({"port": preferred_port}).encode("utf-8")
+    req = UrlRequest(url, data=body, headers={"content-type": "application/json"}, method="POST")
+    try:
+        with urlopen(req, timeout=4) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response shape")
+            payload.setdefault("source", "proxy")
+            payload.setdefault("host", cleaned_host)
+            return payload
+    except Exception as exc:
+        return {
+            "status": "error",
+            "source": "proxy",
+            "host": cleaned_host,
+            "reason": str(exc),
+        }
+
+
 def _agents_text(request: Request) -> str:
     base = str(request.base_url).rstrip("/")
     return f"""SlashAgents-Version: 0.1
@@ -378,6 +616,11 @@ Specs:
 
 Runtime:
 - Health: GET {base}/servers
+- panel health probe: GET {base}/panel/status?host=<ip>&port=<port>
+- local services: GET {base}/services
+- remote services: GET {base}/services/proxy?host=<ip>&port=7000
+- start files service: POST {base}/services/files/start
+- start remote files service: POST {base}/services/files/start/proxy
 - tmux sessions: GET {base}/tmux/sessions
 - tmux sessions by host: GET {base}/tmux/sessions/proxy?host=<ip>&port=7000
 - server panels by host: GET {base}/servers/proxy?host=<ip>&port=7000
@@ -411,6 +654,40 @@ def servers() -> list[dict]:
 @app.get("/session-templates")
 def session_templates() -> list[dict[str, Any]]:
     return _load_templates()
+
+
+@app.get("/panel/status")
+def panel_status(
+    host: str = Query("127.0.0.1"),
+    port: int = Query(..., ge=1, le=65535),
+    timeout_ms: int = Query(650, ge=100, le=5000),
+) -> dict[str, Any]:
+    cleaned_host = _normalize_host(host)
+    probe_host = "127.0.0.1" if _is_local_host(cleaned_host) else cleaned_host
+    result = _probe_panel_port(probe_host, port, timeout_ms=timeout_ms)
+    result["host"] = cleaned_host
+    result["port"] = port
+    return result
+
+
+@app.get("/services")
+def services_status() -> dict[str, Any]:
+    return _local_services_snapshot()
+
+
+@app.get("/services/proxy")
+def services_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
+    return _fetch_remote_services(host, port)
+
+
+@app.post("/services/files/start")
+def start_files_service(payload: StartFilesServiceRequest) -> dict[str, Any]:
+    return _start_files_service_local(payload.port)
+
+
+@app.post("/services/files/start/proxy")
+def start_files_service_proxy(payload: StartFilesServiceProxyRequest) -> dict[str, Any]:
+    return _start_remote_files_service(payload.host, payload.hub_port, payload.port)
 
 
 @app.get("/tmux/sessions")

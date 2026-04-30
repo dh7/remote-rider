@@ -73,11 +73,17 @@ Each session row includes `S` (setup). Use it to maintain panel mappings after c
 - Remove panel
 - Edit panel label/port/path/protocol
 - Sync panel list/ports from remote (`/servers/proxy`)
+- Launch a new files service on the target host and wire `Files` panel automatically
 - Save updated panel config to browser localStorage
 
 This is the fastest way to fix broken Monitor/Logs/Files/Terminal port mappings after restarts or port shifts.
 
 The tabs bar also includes `+` to open setup quickly and add a new panel/tab to the active session.
+Each tab shows a status dot:
+
+- green = reachable
+- red = unreachable
+- gray = checking
 
 ## Template Configuration
 
@@ -95,10 +101,20 @@ Each template entry uses:
 
 - `GET /servers` -> bootstrap profiles
 - `GET /session-templates` -> panel templates for add-session modal
+- `GET /panel/status?host=<ip>&port=<n>` -> single panel port health probe
+- `GET /services` -> services running on this host (including extra fileserver instances)
+- `GET /services/proxy?host=<ip>&port=7000` -> service snapshot from selected server
 - `GET /tmux/sessions` -> local host tmux sessions
 - `GET /tmux/sessions/proxy?host=<ip>&port=7000` -> tmux sessions from a selected server
 - `GET /servers/proxy?host=<ip>&port=7000` -> panel config from selected server
+- `POST /services/files/start` -> start an additional fileserver on this host
+- `POST /services/files/start/proxy` -> start an additional fileserver on a selected server
 - `POST /tmux/kill` -> kill a tmux session on local host or proxied host
+
+## Why Files Panel Breaks Sometimes
+
+Most breakage comes from port drift on remote nodes. If `8080` is occupied, `start-remote.sh` can shift Files to another free port.
+When a saved session still points to the old port, iframe loads fail. Fix it by opening session setup (`S`) and pressing `Sync From Remote`.
 
 ## Setup
 
