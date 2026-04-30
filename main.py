@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -116,6 +117,15 @@ class AgentStartProxyRequest(AgentStartRequest):
 
 
 class AgentStopProxyRequest(AgentStopRequest):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)
+
+
+class RemoteUpdateRequest(BaseModel):
+    branch: str = Field(default="main", min_length=1, max_length=120)
+
+
+class RemoteUpdateProxyRequest(RemoteUpdateRequest):
     host: str
     hub_port: int = Field(default=7000, ge=1, le=65535)
 
@@ -790,6 +800,64 @@ def _stop_remote_agent(payload: AgentStopProxyRequest) -> dict[str, Any]:
         return {"status": "error", "host": cleaned_host, "source": "proxy", "reason": str(exc)}
 
 
+def _schedule_remote_update_local(branch: str) -> dict[str, Any]:
+    branch_name = branch.strip() or "main"
+    script_path = HERE / "update-remote.sh"
+    if not script_path.exists():
+        return {
+            "status": "error",
+            "reason": f"missing {script_path.name}",
+        }
+
+    command = f"sleep 1; {shlex.quote(str(script_path))} {shlex.quote(branch_name)}"
+    with open(os.devnull, "wb") as devnull:
+        proc = subprocess.Popen(
+            ["/bin/bash", "-lc", command],
+            cwd=str(HERE),
+            stdout=devnull,
+            stderr=devnull,
+            close_fds=True,
+            start_new_session=True,
+        )
+
+    return {
+        "status": "scheduled",
+        "branch": branch_name,
+        "pid": proc.pid,
+        "log_path": str(HERE / "logs" / "update-remote.log"),
+        "script": str(script_path.name),
+    }
+
+
+def _schedule_remote_update_proxy(payload: RemoteUpdateProxyRequest) -> dict[str, Any]:
+    cleaned_host = _normalize_host(payload.host)
+    if _is_local_host(cleaned_host):
+        return _schedule_remote_update_local(payload.branch)
+
+    body = json.dumps({"branch": payload.branch}).encode("utf-8")
+    req = UrlRequest(
+        f"http://{cleaned_host}:{payload.hub_port}/admin/update-remote",
+        data=body,
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=4) as resp:
+            payload_out = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload_out, dict):
+                raise ValueError("invalid response shape")
+            payload_out.setdefault("source", "proxy")
+            payload_out.setdefault("host", cleaned_host)
+            return payload_out
+    except Exception as exc:
+        return {
+            "status": "error",
+            "host": cleaned_host,
+            "source": "proxy",
+            "reason": str(exc),
+        }
+
+
 def _is_port_busy_for_bind(port: int, bind_host: str = "0.0.0.0") -> bool:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -822,7 +890,7 @@ def _probe_panel_port(host: str, port: int, timeout_ms: int = 650) -> dict[str, 
 
 
 def _service_entry(name: str, port: int, *, enabled: bool = True, pid: int | None = None) -> dict[str, Any]:
-    host_for_probe = "127.0.0.1"
+    host_for_probe = os.getenv("BIND_HOST", "127.0.0.1")
     if enabled:
         probe = _probe_panel_port(host_for_probe, port)
     else:
@@ -1047,6 +1115,8 @@ Runtime:
 - start remote agent: POST {base}/agents/start/proxy
 - stop local agent: POST {base}/agents/stop
 - stop remote agent: POST {base}/agents/stop/proxy
+- schedule local remote-stack update: POST {base}/admin/update-remote
+- schedule proxied remote-stack update: POST {base}/admin/update-remote/proxy
 - machine panels by host: GET {base}/machines/proxy?host=<ip>&port=7000
 - legacy machine-panels alias: GET {base}/servers/proxy?host=<ip>&port=7000
 - kill tmux session: POST {base}/tmux/kill
@@ -1071,6 +1141,10 @@ curl -X POST {base}/sessions/netochka-job1/tabs \
 curl -X POST {base}/agents/start/proxy \
   -H 'content-type: application/json' \
   -d '{{"host":"100.119.43.10","name":"agent-review","command":"codex --dangerously-bypass-approvals-and-sandbox","session_name":"demo-session"}}'
+
+curl -X POST {base}/admin/update-remote/proxy \
+  -H 'content-type: application/json' \
+  -d '{{"host":"100.119.43.10","branch":"main"}}'
 """
 
 
@@ -1186,6 +1260,17 @@ def agents_stop(payload: AgentStopRequest) -> dict[str, Any]:
 @app.post("/agents/stop/proxy")
 def agents_stop_proxy(payload: AgentStopProxyRequest) -> dict[str, Any]:
     return _stop_remote_agent(payload)
+
+
+@app.post("/admin/update-remote")
+def admin_update_remote(payload: RemoteUpdateRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return _schedule_remote_update_local(payload.branch)
+
+
+@app.post("/admin/update-remote/proxy")
+def admin_update_remote_proxy(payload: RemoteUpdateProxyRequest) -> dict[str, Any]:
+    return _schedule_remote_update_proxy(payload)
 
 
 @app.post("/sessions/{session_name}/tabs")

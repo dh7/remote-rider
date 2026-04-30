@@ -92,6 +92,7 @@ Remote mode should own local runtime and service control.
 4. Let remote agents keep coding even if the control host disappears.
 5. Allow agents to surface their own tabs back to the operator through the control API.
 6. Keep the control/runtime boundary explicit so port drift and restarts do not corrupt workspace intent.
+7. Allow the control host to ask remotes to update themselves (`git pull` + restart) so fleet maintenance is not manual.
 
 ## Immediate Next Capability
 

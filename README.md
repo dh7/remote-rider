@@ -133,6 +133,8 @@ Each template entry uses:
 - `POST /agents/start/proxy` -> start an agent on a selected server
 - `POST /agents/stop` -> stop an agent on this host
 - `POST /agents/stop/proxy` -> stop an agent on a selected server
+- `POST /admin/update-remote` -> schedule `git pull` + remote stack restart on this host
+- `POST /admin/update-remote/proxy` -> schedule `git pull` + remote stack restart on a selected server
 - `GET /machines/proxy?host=<ip>&port=7000` -> machine panel config from selected server
 - `GET /servers/proxy?host=<ip>&port=7000` -> legacy-compatible alias
 - `POST /services/files/start` -> start an additional fileserver on this host
@@ -170,6 +172,30 @@ Remote nodes can now manage first-class agent processes.
 - Registry: `agent_registry.json`
 
 This is meant to keep remote coding agents alive independently of the control UI.
+
+## Remote Updates
+
+To avoid SSHing into every remote machine after each change, the remote hub can schedule a detached self-update job:
+
+1. `git pull --ff-only origin <branch>`
+2. `./start-remote.sh`
+
+Use:
+
+```bash
+curl -X POST http://CONTROL_OR_REMOTE_HOST:7000/admin/update-remote/proxy \
+  -H 'content-type: application/json' \
+  -d '{"host":"100.119.43.10","branch":"main"}'
+```
+
+Remote update logs are written to:
+
+- `logs/update-remote.log`
+
+Current limitation:
+
+- This updates remote nodes only.
+- The control host still needs its own pull/restart workflow.
 
 ## Why Files Panel Breaks Sometimes
 
