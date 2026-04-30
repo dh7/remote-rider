@@ -43,10 +43,12 @@ STYLE = """
     background: #2f446f;
     color: #fff;
     border: none;
+    display: inline-block;
     padding: 0.42rem 0.78rem;
     cursor: pointer;
     font-family: monospace;
     font-size: 0.84rem;
+    text-decoration: none;
   }
   .btn:hover { filter: brightness(1.12); }
 
@@ -333,12 +335,11 @@ def browse(request: Request, path: str = "") -> HTMLResponse:
 
     statuses = _git_status_map(target)
     entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-    path_js = json.dumps(path)
     items = (
         '<div class="topbar">'
         f'{breadcrumbs(path)}'
         '<div class="toolbar-actions">'
-        f'<button class="btn" type="button" onclick="createFile({path_js})">Create File</button>'
+        f'<a class="btn" href="/new-file?path={_q(path)}">Create File</a>'
         '</div>'
         '</div><hr>'
     )
@@ -364,29 +365,33 @@ def browse(request: Request, path: str = "") -> HTMLResponse:
             klass = "file-hidden" if entry.name.startswith(".") else "file"
             items += f'<a class="entry-row {klass}" href="/edit?path={_q(rel)}">{badge}{name}</a>'
 
-    script = """
-    <script>
-      async function createFile(currentPath) {
-        const name = prompt('New file path or name:');
-        if (name === null) return;
-        const cleaned = name.trim();
-        if (!cleaned) return;
-        const res = await fetch('/create-file?path=' + encodeURIComponent(currentPath), {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ new_path: cleaned }),
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          alert(`Error ${res.status}: ${text}`);
-          return;
-        }
-        const payload = await res.json();
-        window.location.href = '/edit?path=' + encodeURIComponent(payload.path);
-      }
-    </script>
+    response = HTMLResponse(f"<html><head>{STYLE}</head><body>{items}</body></html>")
+    _set_context_cookies(response, view="files", dir_path=path)
+    return response
+
+
+@app.get("/new-file", response_class=HTMLResponse)
+def new_file_form(path: str = "") -> HTMLResponse:
+    directory = _safe(path)
+    if not directory.exists() or not directory.is_dir():
+        raise HTTPException(status_code=404, detail="Directory not found")
+
+    form = f"""
+    <html><head>{STYLE}</head><body>
+      <div class="topbar">
+        {breadcrumbs(path)}
+        <div class="toolbar-actions">
+          <a class="btn ghost" href="/files?path={_q(path)}">Back</a>
+        </div>
+      </div>
+      <hr>
+      <form method="post" action="/create-file?path={_q(path)}" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+        <input class="save-path" type="text" name="new_path" placeholder="new file path" autofocus>
+        <button class="btn" type="submit">Create File</button>
+      </form>
+    </body></html>
     """
-    response = HTMLResponse(f"<html><head>{STYLE}</head><body>{items}{script}</body></html>")
+    response = HTMLResponse(form)
     _set_context_cookies(response, view="files", dir_path=path)
     return response
 
@@ -996,7 +1001,12 @@ async def create_file(path: str, request: Request) -> dict[str, str]:
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("")
-    return {"status": "ok", "path": _rel(target)}
+    rel = _rel(target)
+
+    if "application/json" in request.headers.get("content-type", ""):
+        return {"status": "ok", "path": rel}
+
+    return RedirectResponse(url=f"/edit?path={_q(rel)}", status_code=303)
 
 
 @app.get("/raw")
