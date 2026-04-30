@@ -134,6 +134,12 @@ class UpdateAllRemotesRequest(RemoteUpdateRequest):
     machines: list[str] | None = None
 
 
+class RemoteGitCheckProxyRequest(BaseModel):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)
+    branch: str = Field(default="main", min_length=1, max_length=120)
+
+
 def _normalize_path(path: str) -> str:
     cleaned = (path or "/").strip()
     if not cleaned:
@@ -866,6 +872,90 @@ def _machine_host_from_inventory(machine: dict[str, Any]) -> str:
     return str(machine.get("ip", "")).strip()
 
 
+def _tail_text_file(path: Path, max_lines: int = 80) -> str:
+    if not path.exists():
+        return ""
+    lines = path.read_text(errors="replace").splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
+def _git_remote_summary(branch: str) -> dict[str, Any]:
+    remote_url = ""
+    try:
+        remote_url = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=str(HERE),
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+    except Exception:
+        remote_url = ""
+
+    result = subprocess.run(
+        ["git", "ls-remote", "--heads", "origin", branch],
+        cwd=str(HERE),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    return {
+        "ok": result.returncode == 0,
+        "branch": branch,
+        "remote_url": remote_url,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+        "returncode": result.returncode,
+    }
+
+
+def _local_update_diagnostics(branch: str) -> dict[str, Any]:
+    return {
+        "host": socket.gethostname(),
+        "branch": branch,
+        "git": _git_remote_summary(branch),
+        "update_log_tail": _tail_text_file(HERE / "logs" / "update-remote.log"),
+        "head": subprocess.run(
+            ["git", "log", "-1", "--oneline"],
+            cwd=str(HERE),
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip(),
+    }
+
+
+def _fetch_remote_update_diagnostics(host: str, port: int, branch: str) -> dict[str, Any]:
+    cleaned_host = _normalize_host(host)
+    if _is_local_host(cleaned_host):
+        return _local_update_diagnostics(branch)
+
+    body = json.dumps({"host": cleaned_host, "hub_port": port, "branch": branch}).encode("utf-8")
+    req = UrlRequest(
+        f"http://{cleaned_host}:{port}/admin/update-diagnostics",
+        data=body,
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=8) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response shape")
+            payload.setdefault("host", cleaned_host)
+            payload.setdefault("source", "proxy")
+            return payload
+    except Exception as exc:
+        return {
+            "host": cleaned_host,
+            "source": "proxy",
+            "branch": branch,
+            "error": str(exc),
+        }
+
+
 def _is_port_busy_for_bind(port: int, bind_host: str = "0.0.0.0") -> bool:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -1126,6 +1216,8 @@ Runtime:
 - schedule local remote-stack update: POST {base}/admin/update-remote
 - schedule proxied remote-stack update: POST {base}/admin/update-remote/proxy
 - schedule fleet remote-stack update: POST {base}/admin/update-all-remotes
+- inspect local update diagnostics: POST {base}/admin/update-diagnostics
+- inspect proxied update diagnostics: POST {base}/admin/update-diagnostics/proxy
 - machine panels by host: GET {base}/machines/proxy?host=<ip>&port=7000
 - legacy machine-panels alias: GET {base}/servers/proxy?host=<ip>&port=7000
 - kill tmux session: POST {base}/tmux/kill
@@ -1158,6 +1250,10 @@ curl -X POST {base}/admin/update-remote/proxy \
 curl -X POST {base}/admin/update-all-remotes \
   -H 'content-type: application/json' \
   -d '{{"branch":"main"}}'
+
+curl -X POST {base}/admin/update-diagnostics/proxy \
+  -H 'content-type: application/json' \
+  -d '{{"host":"100.119.43.10","branch":"main"}}'
 """
 
 
@@ -1316,6 +1412,17 @@ def admin_update_all_remotes(payload: UpdateAllRemotesRequest) -> dict[str, Any]
         "branch": payload.branch,
         "results": results,
     }
+
+
+@app.post("/admin/update-diagnostics")
+def admin_update_diagnostics(payload: RemoteUpdateRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return _local_update_diagnostics(payload.branch)
+
+
+@app.post("/admin/update-diagnostics/proxy")
+def admin_update_diagnostics_proxy(payload: RemoteGitCheckProxyRequest) -> dict[str, Any]:
+    return _fetch_remote_update_diagnostics(payload.host, payload.hub_port, payload.branch)
 
 
 @app.post("/sessions/{session_name}/tabs")
