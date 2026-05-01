@@ -132,6 +132,16 @@ stop_matching() {
   done <<< "$pids"
 }
 
+# Detect if a control hub is already running before we stop anything.
+# If so, restart the hub as RUN_MODE=all so both APIs stay available.
+HUB_MODE="remote"
+_existing_mode=$(curl -s --max-time 1 "http://${HOST}:${HUB_PORT}/api/info" 2>/dev/null \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('mode',''))" 2>/dev/null || true)
+if [[ "$_existing_mode" == "control" || "$_existing_mode" == "all" ]]; then
+  HUB_MODE="all"
+  echo "Control hub detected — will restart as RUN_MODE=all"
+fi
+
 echo "Restarting remote services on $HOST..."
 stop_pidfile ttyd
 stop_pidfile monitor
@@ -156,7 +166,7 @@ export TERM_PORT MONITOR_PORT LOGS_PORT FILES_PORT
 export HUB_PORT
 export BIND_HOST="$HOST"
 export PUBLIC_HOST="$HOST"
-export RUN_MODE="remote"
+export RUN_MODE="$HUB_MODE"
 
 if [[ -n "$TTYD_BIN" ]]; then
   "$TTYD_BIN" -W -a -i "$HOST" -p "$TERM_PORT" ./terminal-entry.sh > "$LOG_DIR/ttyd.log" 2>&1 &
