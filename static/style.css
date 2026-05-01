@@ -9,7 +9,8 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   gap: 0.5rem;
   border-right: 1px solid #2a2a4a;
   overflow-y: auto;
-  background: #0c0c16;
+  background: color-mix(in srgb, var(--active-color, transparent) 10%, #0c0c16);
+  transition: background 0.3s ease;
 }
 
 #sidebar-header {
@@ -56,13 +57,13 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
 }
 
 .session-row {
-  border: 1px solid #30344f;
+  border: 1px solid color-mix(in srgb, var(--session-color, #30344f) 40%, #30344f);
   border-radius: 0.4rem;
   padding: 0.3rem;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.3rem;
-  background: #111327;
+  background: color-mix(in srgb, var(--session-color, transparent) 14%, #111327);
 }
 
 .session-row.dragging { opacity: 0.45; }
@@ -84,9 +85,12 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   border-radius: 0.25rem;
 }
 
-.session-main:hover,
+.session-main:hover {
+  background: color-mix(in srgb, var(--session-color, transparent) 20%, #1a1f3e);
+  color: #fff;
+}
 .session-main.active {
-  background: #1a1f3e;
+  background: color-mix(in srgb, var(--session-color, transparent) 30%, #1a1f3e);
   color: #fff;
 }
 

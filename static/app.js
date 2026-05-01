@@ -220,6 +220,7 @@ function normalizeProfile(raw) {
   return {
     name: String(raw.name),
     display: raw.display ? String(raw.display) : undefined,
+    color: raw.color ? String(raw.color) : undefined,
     machine: {
       name: machineName,
       host,
@@ -343,12 +344,59 @@ async function probePanelStatus(server, tab, endpoint) {
   }
 }
 
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * c).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
 function colorForSession(server) {
-  const key = `${sessionMachineHost(server) || server.ip || ''}`;
+  if (server.color) return server.color;
+  const key = sessionMachineHost(server) || server.ip || '';
   let hash = 0;
   for (let i = 0; i < key.length; i += 1) hash = ((hash << 5) - hash) + key.charCodeAt(i);
   const hue = Math.abs(hash) % 360;
-  return `hsl(${hue} 65% 55%)`;
+  return hslToHex(hue, 65, 55);
+}
+
+function pickSessionColor(server) {
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = server.color || colorForSession(server);
+  input.style.cssText = 'position:fixed;opacity:0;pointer-events:none;';
+  document.body.appendChild(input);
+  input.addEventListener('input', () => {
+    server.color = input.value;
+    const row = document.querySelector(`[data-session="${CSS.escape(server.name)}"]`);
+    if (row) row.style.setProperty('--session-color', server.color);
+    updateSidebarColor();
+  });
+  input.addEventListener('change', () => {
+    server.color = input.value;
+    saveProfiles();
+    renderSidebar();
+    updateSidebarColor();
+    if (document.body.contains(input)) document.body.removeChild(input);
+  });
+  input.addEventListener('blur', () => {
+    if (document.body.contains(input)) document.body.removeChild(input);
+  });
+  input.click();
+}
+
+function updateSidebarColor() {
+  const sidebar = document.getElementById('sidebar');
+  const active = state.sessions.find((s) => s.name === state.activeSession);
+  if (active) {
+    sidebar.style.setProperty('--active-color', colorForSession(active));
+  } else {
+    sidebar.style.removeProperty('--active-color');
+  }
 }
 
 function terminalSessionForSession(server) {
@@ -564,6 +612,7 @@ async function selectSession(server) {
   state.activeSession = server.name;
   saveUIState();
   renderSidebar();
+  updateSidebarColor();
   await renderTabs(server);
 }
 
@@ -1173,6 +1222,8 @@ function renderSidebar() {
   state.sessions.forEach((server) => {
     const row = document.createElement('div');
     row.className = 'session-row';
+    row.dataset.session = server.name;
+    row.style.setProperty('--session-color', colorForSession(server));
 
     row.addEventListener('dragover', (e) => {
       const source = dragServerName || e.dataTransfer.getData('text/plain');
@@ -1264,7 +1315,14 @@ function renderSidebar() {
       clearDropMarkers();
     };
 
+    const colorBtn = document.createElement('button');
+    colorBtn.className = 'icon-btn';
+    colorBtn.textContent = '⚙';
+    colorBtn.title = 'Choose session color';
+    colorBtn.onclick = (e) => { e.stopPropagation(); pickSessionColor(server); };
+
     actions.appendChild(rename);
+    actions.appendChild(colorBtn);
     actions.appendChild(setup);
     actions.appendChild(del);
     actions.appendChild(kill);
