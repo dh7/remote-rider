@@ -93,6 +93,19 @@
       <h2>Session Setup</h2>
       <div id="panel-target" class="muted-note"></div>
       <div class="section-card">
+        <div class="section-head"><h3>Session</h3></div>
+        <div class="inline-row">
+          <div class="form-row">
+            <label for="panel-session-label">Label</label>
+            <input id="panel-session-label" type="text" placeholder="Session label">
+          </div>
+          <div class="form-row">
+            <label for="panel-session-color">Color</label>
+            <input id="panel-session-color" type="color">
+          </div>
+        </div>
+      </div>
+      <div class="section-card">
         <div class="section-head">
           <h3>Session Tabs</h3>
         </div>
@@ -112,8 +125,14 @@
         <button id="panel-launch-files" class="secondary-btn" type="button">Launch Files Service</button>
       </div>
       <div id="panel-actions">
-        <button id="panel-cancel" class="secondary-btn" type="button">Cancel</button>
-        <button id="panel-save" class="primary-btn" type="button">Save</button>
+        <div id="panel-danger">
+          <button id="panel-delete" class="danger-btn" type="button">Delete</button>
+          <button id="panel-kill" class="danger-btn" type="button">Delete + Kill tmux</button>
+        </div>
+        <div id="panel-confirm">
+          <button id="panel-cancel" class="secondary-btn" type="button">Cancel</button>
+          <button id="panel-save" class="primary-btn" type="button">Save</button>
+        </div>
       </div>
     </div>
   </div>

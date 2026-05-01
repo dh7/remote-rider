@@ -466,30 +466,6 @@ function colorForSession(server) {
   return hslToHex(hue, 65, 55);
 }
 
-function pickSessionColor(server) {
-  const input = document.createElement('input');
-  input.type = 'color';
-  input.value = server.color || colorForSession(server);
-  input.style.cssText = 'position:fixed;opacity:0;pointer-events:none;';
-  document.body.appendChild(input);
-  input.addEventListener('input', () => {
-    server.color = input.value;
-    const row = document.querySelector(`[data-session="${CSS.escape(server.name)}"]`);
-    if (row) row.style.setProperty('--session-color', server.color);
-    updateSidebarColor();
-  });
-  input.addEventListener('change', () => {
-    server.color = input.value;
-    saveProfiles();
-    renderSidebar();
-    updateSidebarColor();
-    if (document.body.contains(input)) document.body.removeChild(input);
-  });
-  input.addEventListener('blur', () => {
-    if (document.body.contains(input)) document.body.removeChild(input);
-  });
-  input.click();
-}
 
 function updateSidebarColor() {
   const sidebar = document.getElementById('sidebar');
@@ -768,13 +744,6 @@ async function deleteSessionAndKill(server) {
   reloadSessions(fallback);
 }
 
-async function renameSession(server) {
-  const label = prompt('Session label in left menu:', displayName(server));
-  if (label === null) return;
-  server.display = label.trim() || server.name;
-  saveProfiles();
-  renderSidebar();
-}
 
 function renderPanelEditorRows() {
   const rows = (state.panelEditor && state.panelEditor.panels) ? state.panelEditor.panels : [];
@@ -941,10 +910,14 @@ async function refreshDiscoveredServices() {
 async function openPanelModal(server) {
   state.panelEditor = {
     name: server.name,
+    label: server.display || server.name,
+    color: server.color || colorForSession(server),
     panels: normalizePanels(clonePanels(server)),
   };
   state.discoveredServices = [];
-  panelTarget.textContent = `${displayName(server)} (${sessionMachineHost(server) || server.ip || 'unknown-host'})`;
+  panelTarget.textContent = sessionMachineHost(server) || server.ip || 'unknown-host';
+  document.getElementById('panel-session-label').value = state.panelEditor.label;
+  document.getElementById('panel-session-color').value = state.panelEditor.color;
   renderPanelEditorRows();
   renderDiscoveredServices();
   panelModal.classList.add('open');
@@ -1042,6 +1015,9 @@ function savePanelEditor() {
   if (!state.panelEditor) return;
   const server = state.sessions.find((s) => s.name === state.panelEditor.name);
   if (!server) return;
+  const newLabel = (document.getElementById('panel-session-label').value || '').trim();
+  server.display = newLabel || server.name;
+  server.color = state.panelEditor.color;
   server.tabs = normalizePanels(state.panelEditor.panels);
   server.panels = server.tabs;
   saveProfiles();
@@ -1352,55 +1328,6 @@ function renderSidebar() {
       renderSidebar();
     });
 
-    const main = document.createElement('button');
-    main.className = 'session-main' + (server.name === state.activeSession ? ' active' : '');
-    main.onclick = () => selectSession(server);
-
-    const dot = document.createElement('span');
-    dot.className = 'session-dot';
-    dot.style.background = colorForSession(server);
-
-    const text = document.createElement('div');
-    text.className = 'session-text';
-    const label = document.createElement('div');
-    label.className = 'session-label';
-    label.textContent = displayName(server);
-    const meta = document.createElement('div');
-    meta.className = 'session-meta';
-    meta.textContent = sessionMachineHost(server) || server.ip || 'unknown-host';
-    text.appendChild(label);
-    text.appendChild(meta);
-
-    main.appendChild(dot);
-    main.appendChild(text);
-
-    const actions = document.createElement('div');
-    actions.className = 'session-actions';
-
-    const rename = document.createElement('button');
-    rename.className = 'icon-btn';
-    rename.textContent = 'R';
-    rename.title = 'Rename session label';
-    rename.onclick = (e) => { e.stopPropagation(); renameSession(server); };
-
-    const setup = document.createElement('button');
-    setup.className = 'icon-btn';
-    setup.textContent = 'S';
-    setup.title = 'Setup panels';
-    setup.onclick = (e) => { e.stopPropagation(); openPanelModal(server); };
-
-    const del = document.createElement('button');
-    del.className = 'icon-btn';
-    del.textContent = 'X';
-    del.title = 'Delete session';
-    del.onclick = (e) => { e.stopPropagation(); deleteSession(server); };
-
-    const kill = document.createElement('button');
-    kill.className = 'icon-btn';
-    kill.textContent = '!';
-    kill.title = 'Delete + kill tmux session';
-    kill.onclick = (e) => { e.stopPropagation(); deleteSessionAndKill(server); };
-
     const drag = document.createElement('button');
     drag.className = 'icon-btn drag-handle';
     drag.textContent = '::';
@@ -1417,21 +1344,31 @@ function renderSidebar() {
       clearDropMarkers();
     };
 
-    const colorBtn = document.createElement('button');
-    colorBtn.className = 'icon-btn';
-    colorBtn.textContent = '⚙';
-    colorBtn.title = 'Choose session color';
-    colorBtn.onclick = (e) => { e.stopPropagation(); pickSessionColor(server); };
+    const main = document.createElement('button');
+    main.className = 'session-main' + (server.name === state.activeSession ? ' active' : '');
+    main.onclick = () => selectSession(server);
 
-    actions.appendChild(rename);
-    actions.appendChild(colorBtn);
-    actions.appendChild(setup);
-    actions.appendChild(del);
-    actions.appendChild(kill);
-    actions.appendChild(drag);
+    const text = document.createElement('div');
+    text.className = 'session-text';
+    const label = document.createElement('div');
+    label.className = 'session-label';
+    label.textContent = displayName(server);
+    const meta = document.createElement('div');
+    meta.className = 'session-meta';
+    meta.textContent = sessionMachineHost(server) || server.ip || 'unknown-host';
+    text.appendChild(label);
+    text.appendChild(meta);
+    main.appendChild(text);
 
+    const gear = document.createElement('button');
+    gear.className = 'icon-btn';
+    gear.textContent = '⚙';
+    gear.title = 'Session setup';
+    gear.onclick = (e) => { e.stopPropagation(); openPanelModal(server); };
+
+    row.appendChild(drag);
     row.appendChild(main);
-    row.appendChild(actions);
+    row.appendChild(gear);
     list.appendChild(row);
   });
 }
@@ -1541,6 +1478,29 @@ async function init() {
   document.getElementById('panel-sync').onclick = syncPanelEditorFromRemote;
   document.getElementById('panel-launch-files').onclick = launchFilesServiceFromPanelEditor;
   document.getElementById('panel-refresh-services').onclick = refreshDiscoveredServices;
+  document.getElementById('panel-session-color').addEventListener('input', (e) => {
+    if (!state.panelEditor) return;
+    state.panelEditor.color = e.target.value;
+    const row = document.querySelector(`[data-session="${CSS.escape(state.panelEditor.name)}"]`);
+    if (row) row.style.setProperty('--session-color', e.target.value);
+    updateSidebarColor();
+  });
+  document.getElementById('panel-delete').onclick = () => {
+    if (!state.panelEditor) return;
+    const server = state.sessions.find((s) => s.name === state.panelEditor.name);
+    if (!server || !confirm(`Delete session "${displayName(server)}"?`)) return;
+    closePanelModal();
+    state.sessions = state.sessions.filter((s) => s.name !== server.name);
+    saveProfiles();
+    reloadSessions(state.activeSession === server.name ? null : state.activeSession);
+  };
+  document.getElementById('panel-kill').onclick = async () => {
+    if (!state.panelEditor) return;
+    const server = state.sessions.find((s) => s.name === state.panelEditor.name);
+    if (!server) return;
+    closePanelModal();
+    await deleteSessionAndKill(server);
+  };
   document.getElementById('update-close').onclick = closeUpdateModal;
   document.getElementById('update-modal').addEventListener('click', (e) => {
     if (e.target === document.getElementById('update-modal')) closeUpdateModal();

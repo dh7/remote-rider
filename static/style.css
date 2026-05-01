@@ -61,8 +61,9 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   border-radius: 0.4rem;
   padding: 0.3rem;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto 1fr auto;
   gap: 0.3rem;
+  align-items: center;
   background: color-mix(in srgb, var(--session-color, transparent) 14%, #111327);
 }
 
@@ -369,11 +370,36 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   font-family: monospace;
   min-width: 0;
 }
-#panel-actions-row,
-#panel-actions {
+#panel-actions-row {
   display: flex;
   gap: 0.5rem;
   justify-content: flex-end;
+}
+#panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  align-items: center;
+}
+#panel-danger, #panel-confirm {
+  display: flex;
+  gap: 0.5rem;
+}
+.danger-btn {
+  background: #3d1a1f;
+  border: 1px solid #7a3040;
+  color: #ffbcc4;
+  padding: 0.45rem 0.8rem;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 0.82rem;
+}
+.form-row input[type="color"] {
+  height: 2rem;
+  width: 3.5rem;
+  padding: 0.1rem 0.15rem;
+  cursor: pointer;
 }
 .section-card {
   border: 1px solid #303a58;
