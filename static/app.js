@@ -157,10 +157,22 @@ async function refreshSessionsFromControlIfChanged() {
   await reloadSessions(state.activeSession);
 }
 
+function closeUpdateModal() {
+  document.getElementById('update-modal').classList.remove('open');
+}
+
 async function updateAllRemotes() {
   const branch = prompt('Update all remotes from which branch?', 'main');
   if (branch === null) return;
   const cleanedBranch = branch.trim() || 'main';
+
+  const updateModal = document.getElementById('update-modal');
+  const branchNote = document.getElementById('update-branch-note');
+  const machineList = document.getElementById('update-machine-list');
+
+  machineList.innerHTML = '';
+  branchNote.textContent = `Triggering update from branch: ${cleanedBranch}...`;
+  updateModal.classList.add('open');
 
   let payload;
   try {
@@ -170,19 +182,109 @@ async function updateAllRemotes() {
       body: JSON.stringify({ branch: cleanedBranch }),
     }).then((r) => r.json());
   } catch (err) {
-    alert(`Could not trigger remote updates: ${err.message}`);
+    branchNote.textContent = `Error triggering updates: ${err.message}`;
     return;
   }
 
   const results = Array.isArray(payload.results) ? payload.results : [];
-  const summary = results.map((row) => {
-    const machine = row.machine || row.host || 'unknown';
-    const status = row.status || 'unknown';
-    const reason = row.reason ? ` (${row.reason})` : '';
-    return `${machine}: ${status}${reason}`;
-  }).join('\n');
+  if (!results.length) {
+    branchNote.textContent = 'No remotes configured.';
+    return;
+  }
 
-  alert(summary || 'No remotes were selected for update.');
+  branchNote.textContent = `Branch: ${cleanedBranch} — update triggered on ${results.length} machine${results.length === 1 ? '' : 's'}`;
+
+  const machineStates = results.map((row) => {
+    const name = row.machine || row.host || 'unknown';
+    const host = row.host || '';
+    const triggered = row.status === 'scheduled';
+
+    const rowEl = document.createElement('div');
+    rowEl.className = 'update-machine-row';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'update-machine-name';
+    nameEl.textContent = name;
+
+    const commitsEl = document.createElement('div');
+    commitsEl.className = 'update-machine-commits';
+    commitsEl.textContent = triggered ? 'Waiting for update to apply...' : `Failed: ${row.reason || 'unknown'}`;
+
+    const badge = document.createElement('div');
+    badge.className = `update-status-badge ${triggered ? 'checking' : ''}`;
+    badge.textContent = triggered ? 'checking' : 'error';
+
+    rowEl.appendChild(nameEl);
+    rowEl.appendChild(commitsEl);
+    rowEl.appendChild(badge);
+    machineList.appendChild(rowEl);
+
+    return { name, host, triggered, commitsEl, badge, done: !triggered };
+  });
+
+  const MAX_POLLS = 20;
+  let pollCount = 0;
+
+  const poll = async () => {
+    pollCount += 1;
+    const pending = machineStates.filter((m) => !m.done);
+    if (!pending.length || pollCount > MAX_POLLS) return;
+
+    await Promise.all(pending.map(async (machine) => {
+      try {
+        const diag = await fetch('/admin/update-diagnostics/proxy', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ host: machine.host, hub_port: 7000, branch: cleanedBranch }),
+        }).then((r) => r.json());
+
+        const head = (diag.head || '').trim();
+        const gitOut = (diag.git?.stdout || '').trim();
+        const headHash = head.split(' ')[0];
+        const remoteHash = gitOut.split('\t')[0];
+
+        machine.commitsEl.innerHTML = '';
+
+        const headLine = document.createElement('div');
+        headLine.className = 'update-commit-line';
+        const headLabel = document.createElement('span');
+        headLabel.textContent = 'local:  ';
+        headLine.appendChild(headLabel);
+        headLine.appendChild(document.createTextNode(head || 'unknown'));
+
+        const remoteLine = document.createElement('div');
+        remoteLine.className = 'update-commit-line';
+        const remoteLabel = document.createElement('span');
+        remoteLabel.textContent = 'remote: ';
+        remoteLine.appendChild(remoteLabel);
+        remoteLine.appendChild(document.createTextNode(remoteHash ? remoteHash.slice(0, 12) : 'unknown'));
+
+        machine.commitsEl.appendChild(headLine);
+        machine.commitsEl.appendChild(remoteLine);
+
+        if (headHash && remoteHash && remoteHash.startsWith(headHash)) {
+          machine.badge.className = 'update-status-badge synced';
+          machine.badge.textContent = 'synced';
+          machine.done = true;
+        } else if (diag.error) {
+          machine.badge.className = 'update-status-badge';
+          machine.badge.textContent = 'unreachable';
+        } else {
+          machine.badge.className = 'update-status-badge behind';
+          machine.badge.textContent = 'behind';
+        }
+      } catch (_) {
+        // keep polling
+      }
+    }));
+
+    const stillPending = machineStates.filter((m) => !m.done);
+    if (stillPending.length && pollCount <= MAX_POLLS) {
+      setTimeout(poll, 3000);
+    }
+  };
+
+  setTimeout(poll, 3000);
 }
 
 function serviceNameForLabel(label) {
@@ -1439,6 +1541,10 @@ async function init() {
   document.getElementById('panel-sync').onclick = syncPanelEditorFromRemote;
   document.getElementById('panel-launch-files').onclick = launchFilesServiceFromPanelEditor;
   document.getElementById('panel-refresh-services').onclick = refreshDiscoveredServices;
+  document.getElementById('update-close').onclick = closeUpdateModal;
+  document.getElementById('update-modal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('update-modal')) closeUpdateModal();
+  });
   document.getElementById('panel-add').onclick = () => {
     if (!state.panelEditor) return;
     state.panelEditor.panels.push({ label: 'Panel', port: 9000, path: '/', protocol: 'http' });
@@ -1507,6 +1613,7 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && addModal.classList.contains('open')) closeAddModal();
     if (e.key === 'Escape' && panelModal.classList.contains('open')) closePanelModal();
+    if (e.key === 'Escape' && document.getElementById('update-modal').classList.contains('open')) closeUpdateModal();
   });
 
   await reloadSessions(state.activeSession);

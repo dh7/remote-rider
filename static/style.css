@@ -445,3 +445,56 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
 }
 .muted-note { font-size: 0.72rem; color: #8f97b9; }
 .hidden { display: none !important; }
+
+#update-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 8, 14, 0.72);
+  z-index: 30;
+  padding: 1rem;
+}
+#update-modal.open { display: flex; }
+#update-card {
+  width: min(46rem, 100%);
+  max-height: 80vh;
+  overflow: auto;
+  background: #121628;
+  border: 1px solid #394160;
+  border-radius: 0.6rem;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+#update-card h2 { font-size: 0.95rem; color: #d7defa; font-weight: bold; }
+#update-machine-list { display: flex; flex-direction: column; gap: 0.5rem; }
+#update-actions { display: flex; justify-content: flex-end; }
+
+.update-machine-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.5rem;
+  align-items: start;
+  border: 1px solid #2b344f;
+  border-radius: 0.4rem;
+  padding: 0.55rem 0.65rem;
+  background: #0f1424;
+}
+.update-machine-name { font-size: 0.82rem; color: #d7defa; }
+.update-machine-commits { display: flex; flex-direction: column; gap: 0.2rem; }
+.update-commit-line { font-size: 0.7rem; font-family: monospace; color: #97a4ce; }
+.update-commit-line span { color: #c8d0ef; }
+.update-status-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #394160;
+  color: #d6def7;
+  white-space: nowrap;
+}
+.update-status-badge.synced { background: #173323; border-color: #2f7a4f; color: #bce8ca; }
+.update-status-badge.behind { background: #402126; border-color: #8d3945; color: #ffc0c7; }
+.update-status-badge.checking { background: #1a1f3e; border-color: #4c5a86; color: #b0badf; }
