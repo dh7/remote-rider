@@ -184,6 +184,47 @@
       display: none;
     }
     #frames iframe.active { display: block; }
+    #frames .frame-notice {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background: linear-gradient(180deg, #131620 0%, #0c0f17 100%);
+      color: #d7deef;
+      text-align: center;
+    }
+    #frames .frame-notice.active { display: flex; }
+    .frame-card {
+      max-width: 34rem;
+      padding: 1.2rem 1.4rem;
+      border: 1px solid #31384d;
+      background: rgba(18, 22, 32, 0.96);
+    }
+    .frame-card h3 {
+      margin: 0 0 0.6rem;
+      font-size: 1rem;
+      color: #fff;
+    }
+    .frame-card p {
+      margin: 0 0 1rem;
+      line-height: 1.45;
+    }
+    .frame-actions {
+      display: flex;
+      gap: 0.6rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .frame-link {
+      display: inline-block;
+      padding: 0.55rem 0.8rem;
+      background: #1b2440;
+      border: 1px solid #44507c;
+      color: #e7edff;
+      text-decoration: none;
+    }
 
     .tab-btn {
       background: none;
@@ -959,6 +1000,7 @@
               up: Boolean(service.up),
               enabled: service.enabled !== false,
               launchable: Boolean(service.launchable),
+              embeddable: service.embeddable !== false,
               latency: Number(service.latency_ms || 0),
               error: service.error ? String(service.error) : '',
             })).filter((service) => service.name && service.port > 0)
@@ -1003,6 +1045,7 @@
             port: match.port,
             path: tab.path || match.path || '/',
             protocol: tab.protocol || match.protocol || 'http',
+            embeddable: match.embeddable !== false,
             source: 'live-service',
           };
         }
@@ -1013,10 +1056,19 @@
           port: tab.port,
           path: tab.path || '/',
           protocol: tab.protocol || window.location.protocol.replace(':', ''),
+          embeddable: tab.service !== 'hub',
           source: 'saved-fallback',
         };
       }
       return null;
+    }
+
+    function endpointUrl(server, tab, endpoint) {
+      const path = endpoint?.path || tab.path || '/';
+      const protocol = endpoint?.protocol || tab.protocol || window.location.protocol.replace(':', '');
+      const host = resolveHost(endpoint?.host || sessionMachineHost(server));
+      const port = endpoint?.port || tab.port;
+      return port ? `${protocol}://${host}:${port}${path}` : 'about:blank';
     }
 
     function ensureFrame(server, tab, endpoint) {
@@ -1025,20 +1077,34 @@
       const existing = document.getElementById(id);
       if (existing) return existing;
 
-      const path = endpoint?.path || tab.path || '/';
-      const protocol = endpoint?.protocol || tab.protocol || window.location.protocol.replace(':', '');
-      const host = resolveHost(endpoint?.host || sessionMachineHost(server));
-      const port = endpoint?.port || tab.port;
+      const url = endpointUrl(server, tab, endpoint);
+
+      if (endpoint?.embeddable === false) {
+        const notice = document.createElement('div');
+        notice.id = id;
+        notice.className = 'frame-notice';
+        notice.innerHTML = `
+          <div class="frame-card">
+            <h3>${tab.label}</h3>
+            <p>This page should be opened directly instead of inside the control iframe.</p>
+            <div class="frame-actions">
+              <a class="frame-link" href="${url}" target="_blank" rel="noopener">Open in New Tab</a>
+            </div>
+          </div>
+        `;
+        framesEl.appendChild(notice);
+        return notice;
+      }
 
       const iframe = document.createElement('iframe');
       iframe.id = id;
-      iframe.src = port ? `${protocol}://${host}:${port}${path}` : 'about:blank';
+      iframe.src = url;
       framesEl.appendChild(iframe);
       return iframe;
     }
 
     function activateFrame(frameId) {
-      document.querySelectorAll('#frames iframe').forEach((f) => f.classList.remove('active'));
+      document.querySelectorAll('#frames iframe, #frames .frame-notice').forEach((f) => f.classList.remove('active'));
       const frame = document.getElementById(frameId);
       if (frame) frame.classList.add('active');
     }
@@ -1230,8 +1296,13 @@
         const useBtn = document.createElement('button');
         useBtn.className = 'secondary-btn';
         useBtn.type = 'button';
-        useBtn.textContent = 'Use as Tab';
-        useBtn.onclick = () => applyDiscoveredServiceToEditor(service);
+        if (service.embeddable === false) {
+          useBtn.textContent = 'Open';
+          useBtn.onclick = () => window.open(`${service.protocol}://${service.host}:${service.port}${service.path || '/'}`, '_blank', 'noopener');
+        } else {
+          useBtn.textContent = 'Use as Tab';
+          useBtn.onclick = () => applyDiscoveredServiceToEditor(service);
+        }
 
         buttons.appendChild(useBtn);
         if (service.launchable && service.label === 'Files') {

@@ -30,11 +30,11 @@ SESSIONS_LOCK = threading.Lock()
 SERVICE_LOCK = threading.Lock()
 AGENT_LOCK = threading.Lock()
 SERVICE_PANEL_DEFAULTS = {
-    "terminal": {"label": "Terminal", "path": "/", "protocol": "http", "launchable": False},
-    "monitor": {"label": "Monitor", "path": "/", "protocol": "http", "launchable": False},
-    "logs": {"label": "Logs", "path": "/", "protocol": "http", "launchable": False},
-    "files": {"label": "Files", "path": "/files", "protocol": "http", "launchable": True},
-    "hub": {"label": "Hub", "path": "/", "protocol": "http", "launchable": False},
+    "terminal": {"label": "Terminal", "path": "/", "protocol": "http", "launchable": False, "embeddable": True},
+    "monitor": {"label": "Monitor", "path": "/", "protocol": "http", "launchable": False, "embeddable": True},
+    "logs": {"label": "Logs", "path": "/", "protocol": "http", "launchable": False, "embeddable": True},
+    "files": {"label": "Files", "path": "/files", "protocol": "http", "launchable": True, "embeddable": True},
+    "hub": {"label": "Hub", "path": "/", "protocol": "http", "launchable": False, "embeddable": False},
 }
 
 
@@ -1006,6 +1006,7 @@ def _service_entry(name: str, port: int, *, enabled: bool = True, pid: int | Non
         "path": service_defaults.get("path", "/"),
         "protocol": service_defaults.get("protocol", "http"),
         "launchable": bool(service_defaults.get("launchable", False)),
+        "embeddable": bool(service_defaults.get("embeddable", True)),
     }
 
 
