@@ -32,6 +32,12 @@ from models import (
     RemoteUpdateProxyRequest,
     RemoteUpdateRequest,
     ReorderRequest,
+    SandboxCloneProxyRequest,
+    SandboxCloneRequest,
+    SandboxCreateProxyRequest,
+    SandboxCreateRequest,
+    SandboxStopProxyRequest,
+    SandboxStopRequest,
     SessionsPutRequest,
     SessionTabDeleteRequest,
     SessionTabUpsertRequest,
@@ -72,6 +78,16 @@ from tmux import (
     _stop_agent_local,
     _stop_remote_agent,
     _tmux_session_exists,
+)
+from sandbox import (
+    clone_sandbox,
+    clone_sandbox_proxy,
+    create_sandbox,
+    create_sandbox_proxy,
+    list_sandboxes,
+    list_sandboxes_proxy,
+    stop_sandbox,
+    stop_sandbox_proxy,
 )
 from updates import (
     _fetch_remote_update_diagnostics,
@@ -765,6 +781,54 @@ def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
         "remote": remote,
         "servers": data,
     }
+
+
+@app.post("/sandbox/create")
+def sandbox_create(payload: SandboxCreateRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return create_sandbox(payload.repo_url, payload.branch, payload.auth_path, payload.image)
+
+
+@app.post("/sandbox/create/proxy")
+def sandbox_create_proxy_route(payload: SandboxCreateProxyRequest) -> dict[str, Any]:
+    _require_control_api()
+    return create_sandbox_proxy(payload.host, payload.hub_port, payload.repo_url, payload.branch, payload.auth_path, payload.image)
+
+
+@app.get("/sandbox/list")
+def sandbox_list_local() -> dict[str, Any]:
+    _require_runtime_api()
+    return {"sandboxes": list_sandboxes(), "host": socket.gethostname()}
+
+
+@app.get("/sandbox/list/proxy")
+def sandbox_list_proxy_route(host: str = Query(...), hub_port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
+    _require_control_api()
+    return list_sandboxes_proxy(host, hub_port)
+
+
+@app.post("/sandbox/stop")
+def sandbox_stop_local(payload: SandboxStopRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return stop_sandbox(payload.container_id)
+
+
+@app.post("/sandbox/stop/proxy")
+def sandbox_stop_proxy_route(payload: SandboxStopProxyRequest) -> dict[str, Any]:
+    _require_control_api()
+    return stop_sandbox_proxy(payload.host, payload.hub_port, payload.container_id)
+
+
+@app.post("/sandbox/clone")
+def sandbox_clone_local(payload: SandboxCloneRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return clone_sandbox(payload.container_id, payload.new_branch)
+
+
+@app.post("/sandbox/clone/proxy")
+def sandbox_clone_proxy_route(payload: SandboxCloneProxyRequest) -> dict[str, Any]:
+    _require_control_api()
+    return clone_sandbox_proxy(payload.host, payload.hub_port, payload.container_id, payload.new_branch)
 
 
 @app.post("/remote/reorder")

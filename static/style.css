@@ -472,6 +472,46 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
 .muted-note { font-size: 0.72rem; color: #8f97b9; }
 .hidden { display: none !important; }
 
+#new-sandbox-btn {
+  background: #1e3a2a;
+  border: 1px solid #3a6b4a;
+  color: #a8e6bc;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1rem;
+}
+
+#sandbox-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 8, 14, 0.72);
+  z-index: 20;
+  padding: 1rem;
+}
+#sandbox-modal.open { display: flex; }
+#sandbox-card {
+  width: min(36rem, 100%);
+  background: #121628;
+  border: 1px solid #394160;
+  border-radius: 0.6rem;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+#sandbox-card h2 { font-size: 0.95rem; color: #d7defa; font-weight: bold; }
+#sandbox-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.2rem; }
+
+.sandbox-row {
+  border-left: 3px solid #3a6b4a;
+}
+
 #update-modal {
   position: fixed;
   inset: 0;

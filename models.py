@@ -103,3 +103,34 @@ class RemoteGitCheckProxyRequest(BaseModel):
     host: str
     hub_port: int = Field(default=7000, ge=1, le=65535)
     branch: str = Field(default="main", min_length=1, max_length=120)
+
+
+class SandboxCreateRequest(BaseModel):
+    repo_url: str = Field(min_length=1)
+    branch: str = Field(default="main", min_length=1, max_length=200)
+    auth_path: str = ""
+    image: str = "claude-sandbox:latest"
+
+
+class SandboxCreateProxyRequest(SandboxCreateRequest):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)
+
+
+class SandboxStopRequest(BaseModel):
+    container_id: str = Field(min_length=1)
+
+
+class SandboxStopProxyRequest(SandboxStopRequest):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)
+
+
+class SandboxCloneRequest(BaseModel):
+    container_id: str = Field(min_length=1)
+    new_branch: str = Field(min_length=1, max_length=200)
+
+
+class SandboxCloneProxyRequest(SandboxCloneRequest):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)

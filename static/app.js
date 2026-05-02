@@ -1464,12 +1464,152 @@ async function renderTabs(server, refreshLive = true) {
   }
 }
 
+// ── Sandbox ──────────────────────────────────────────────────────────────────
+
+const SANDBOX_COLOR = '#1a7a3f';
+
+function closeSandboxModal() {
+  document.getElementById('sandbox-modal').classList.remove('open');
+}
+
+async function openSandboxModal() {
+  const machineSelect = document.getElementById('sandbox-machine');
+  machineSelect.innerHTML = '';
+
+  HOMELAB_SERVERS.forEach((server) => {
+    const opt = document.createElement('option');
+    opt.value = server.ip;
+    opt.textContent = `${server.name} (${server.ip})`;
+    machineSelect.appendChild(opt);
+  });
+
+  if (!machineSelect.options.length) {
+    const opt = document.createElement('option');
+    opt.value = '127.0.0.1';
+    opt.textContent = 'localhost';
+    machineSelect.appendChild(opt);
+  }
+
+  // Default to active session's machine
+  const active = state.sessions.find((s) => s.name === state.activeSession);
+  if (active) {
+    const host = sessionMachineHost(active) || active.ip || '';
+    const match = HOMELAB_SERVERS.find((s) => s.ip === host);
+    if (match) machineSelect.value = match.ip;
+  }
+
+  document.getElementById('sandbox-branch').value = '';
+  document.getElementById('sandbox-status').textContent = '';
+  document.getElementById('sandbox-submit').disabled = false;
+
+  await refreshSandboxList(machineSelect.value);
+
+  document.getElementById('sandbox-modal').classList.add('open');
+  document.getElementById('sandbox-repo').focus();
+}
+
+async function refreshSandboxList(host) {
+  const wrap = document.getElementById('sandbox-existing-wrap');
+  const select = document.getElementById('sandbox-clone-from');
+  select.innerHTML = '';
+
+  try {
+    const query = new URLSearchParams({ host, hub_port: '7000' }).toString();
+    const payload = await fetch(`/sandbox/list/proxy?${query}`).then((r) => r.json());
+    const sandboxes = Array.isArray(payload.sandboxes) ? payload.sandboxes : [];
+    if (sandboxes.length) {
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = '— none (create fresh) —';
+      select.appendChild(none);
+      sandboxes.forEach((sb) => {
+        const opt = document.createElement('option');
+        opt.value = sb.id;
+        opt.textContent = `${sb.branch || sb.name} (${sb.status})`;
+        select.appendChild(opt);
+      });
+      wrap.classList.remove('hidden');
+    } else {
+      wrap.classList.add('hidden');
+    }
+  } catch (_) {
+    wrap.classList.add('hidden');
+  }
+}
+
+async function submitSandboxModal() {
+  const host = document.getElementById('sandbox-machine').value;
+  const repoUrl = document.getElementById('sandbox-repo').value.trim();
+  const branch = document.getElementById('sandbox-branch').value.trim();
+  const cloneFrom = document.getElementById('sandbox-clone-from').value;
+  const statusEl = document.getElementById('sandbox-status');
+  const submitBtn = document.getElementById('sandbox-submit');
+
+  if (!repoUrl || !branch) {
+    statusEl.textContent = 'Please enter a repository URL and branch name.';
+    return;
+  }
+
+  statusEl.textContent = cloneFrom
+    ? `Cloning sandbox to branch "${branch}"...`
+    : `Creating sandbox for "${branch}" — building image if needed, this may take a minute...`;
+  submitBtn.disabled = true;
+
+  let result;
+  try {
+    if (cloneFrom) {
+      result = await fetch('/sandbox/clone/proxy', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ host, hub_port: 7000, container_id: cloneFrom, new_branch: branch }),
+      }).then((r) => r.json());
+    } else {
+      result = await fetch('/sandbox/create/proxy', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ host, hub_port: 7000, repo_url: repoUrl, branch }),
+      }).then((r) => r.json());
+    }
+  } catch (err) {
+    statusEl.textContent = `Request failed: ${err.message}`;
+    submitBtn.disabled = false;
+    return;
+  }
+
+  if (result.status !== 'ok') {
+    statusEl.textContent = `Error: ${result.reason || JSON.stringify(result)}`;
+    submitBtn.disabled = false;
+    return;
+  }
+
+  const shortBranch = branch.split('/').pop();
+  const session = {
+    name: makeUniqueName(`sandbox-${shortBranch}`),
+    display: `⬡ ${shortBranch}`,
+    color: SANDBOX_COLOR,
+    machine: { name: `sandbox-${shortBranch}`, host },
+    ip: host,
+    tabs: [normalizeTab({
+      label: 'Terminal',
+      service: 'terminal',
+      port: result.ttyd_port,
+    })],
+  };
+  session.panels = session.tabs;
+
+  state.sessions.unshift(session);
+  saveProfiles();
+  closeSandboxModal();
+  reloadSessions(session.name);
+}
+
 async function init() {
   loadUIState();
   await loadSessionTemplates();
   await loadProfilesFromBootstrap();
 
   document.getElementById('add-session-btn').onclick = openAddModal;
+  document.getElementById('new-sandbox-btn').onclick = openSandboxModal;
   document.getElementById('update-remotes-btn').onclick = updateAllRemotes;
   document.getElementById('add-cancel').onclick = closeAddModal;
   document.getElementById('add-submit').onclick = submitAddModal;
@@ -1504,6 +1644,14 @@ async function init() {
   document.getElementById('update-close').onclick = closeUpdateModal;
   document.getElementById('update-modal').addEventListener('click', (e) => {
     if (e.target === document.getElementById('update-modal')) closeUpdateModal();
+  });
+  document.getElementById('sandbox-cancel').onclick = closeSandboxModal;
+  document.getElementById('sandbox-submit').onclick = submitSandboxModal;
+  document.getElementById('sandbox-modal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('sandbox-modal')) closeSandboxModal();
+  });
+  document.getElementById('sandbox-machine').addEventListener('change', (e) => {
+    refreshSandboxList(e.target.value);
   });
   document.getElementById('panel-add').onclick = () => {
     if (!state.panelEditor) return;
@@ -1574,6 +1722,7 @@ async function init() {
     if (e.key === 'Escape' && addModal.classList.contains('open')) closeAddModal();
     if (e.key === 'Escape' && panelModal.classList.contains('open')) closePanelModal();
     if (e.key === 'Escape' && document.getElementById('update-modal').classList.contains('open')) closeUpdateModal();
+    if (e.key === 'Escape' && document.getElementById('sandbox-modal').classList.contains('open')) closeSandboxModal();
   });
 
   await reloadSessions(state.activeSession);

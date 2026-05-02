@@ -10,6 +10,7 @@
       <div id="sidebar-title">Sessions</div>
       <div id="sidebar-actions">
         <button id="update-remotes-btn" title="Update all remotes">Update</button>
+        <button id="new-sandbox-btn" title="New feature sandbox">⬡</button>
         <button id="add-session-btn" title="Add session">+</button>
       </div>
     </div>
@@ -133,6 +134,33 @@
           <button id="panel-cancel" class="secondary-btn" type="button">Cancel</button>
           <button id="panel-save" class="primary-btn" type="button">Save</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="sandbox-modal">
+    <div id="sandbox-card">
+      <h2>New Feature Sandbox</h2>
+      <div class="form-row">
+        <label for="sandbox-machine">Target Machine</label>
+        <select id="sandbox-machine"></select>
+      </div>
+      <div class="form-row">
+        <label for="sandbox-repo">Repository URL</label>
+        <input id="sandbox-repo" type="text" placeholder="https://github.com/user/repo.git">
+      </div>
+      <div class="form-row">
+        <label for="sandbox-branch">Feature Branch</label>
+        <input id="sandbox-branch" type="text" placeholder="feature/my-feature">
+      </div>
+      <div id="sandbox-existing-wrap" class="form-row hidden">
+        <label for="sandbox-clone-from">Clone from existing sandbox</label>
+        <select id="sandbox-clone-from"></select>
+      </div>
+      <div id="sandbox-status" class="muted-note"></div>
+      <div id="sandbox-actions">
+        <button id="sandbox-cancel" class="secondary-btn" type="button">Cancel</button>
+        <button id="sandbox-submit" class="primary-btn" type="button">Create Sandbox</button>
       </div>
     </div>
   </div>
