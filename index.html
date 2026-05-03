@@ -145,9 +145,22 @@
         <label for="sandbox-machine">Target Machine</label>
         <select id="sandbox-machine"></select>
       </div>
+      <div class="inline-row">
+        <div class="form-row">
+          <label for="sandbox-github-user">GitHub user</label>
+          <input id="sandbox-github-user" type="text" placeholder="username">
+        </div>
+        <div class="form-row" style="justify-content:flex-end;">
+          <label>&nbsp;</label>
+          <button id="sandbox-fetch-repos" class="secondary-btn" type="button">Fetch repos</button>
+        </div>
+      </div>
       <div class="form-row">
-        <label for="sandbox-repo">Repository URL</label>
-        <input id="sandbox-repo" type="text" placeholder="https://github.com/user/repo.git">
+        <label for="sandbox-repo">Repository</label>
+        <div class="repo-combo">
+          <input id="sandbox-repo" type="text" placeholder="https://github.com/user/repo.git" autocomplete="off">
+          <div id="sandbox-repo-suggestions" class="repo-suggestions hidden"></div>
+        </div>
       </div>
       <div class="form-row">
         <label for="sandbox-branch">Feature Branch</label>

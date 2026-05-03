@@ -1467,6 +1467,71 @@ async function renderTabs(server, refreshLive = true) {
 // ── Sandbox ──────────────────────────────────────────────────────────────────
 
 const SANDBOX_COLOR = '#1a7a3f';
+const SANDBOX_GH_USER_KEY = 'sandbox-gh-user';
+let _sandboxRepos = [];
+
+async function _loadGithubRepos(username) {
+  if (!username.trim()) return;
+  try {
+    const resp = await fetch(
+      `https://api.github.com/users/${encodeURIComponent(username.trim())}/repos?per_page=100&type=owner&sort=updated`
+    );
+    if (!resp.ok) return;
+    const data = await resp.json();
+    _sandboxRepos = Array.isArray(data) ? data.map((r) => ({
+      name: String(r.name || ''),
+      cloneUrl: String(r.clone_url || ''),
+      description: String(r.description || ''),
+    })).filter((r) => r.name && r.cloneUrl) : [];
+    _renderRepoSuggestions();
+  } catch (_) {}
+}
+
+function _renderRepoSuggestions() {
+  const input = document.getElementById('sandbox-repo');
+  const list = document.getElementById('sandbox-repo-suggestions');
+  if (!input || !list) return;
+
+  const filter = input.value.toLowerCase().trim();
+  const filtered = _sandboxRepos.filter((r) =>
+    !filter || r.name.toLowerCase().includes(filter) || r.description.toLowerCase().includes(filter)
+  ).slice(0, 14);
+
+  list.innerHTML = '';
+  if (!filtered.length) { list.classList.add('hidden'); return; }
+
+  filtered.forEach((repo) => {
+    const item = document.createElement('div');
+    item.className = 'repo-suggestion-item';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'repo-suggestion-name';
+    nameEl.textContent = repo.name;
+    item.appendChild(nameEl);
+
+    if (repo.description) {
+      const descEl = document.createElement('div');
+      descEl.className = 'repo-suggestion-desc';
+      descEl.textContent = repo.description;
+      item.appendChild(descEl);
+    }
+
+    item.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      input.value = repo.cloneUrl;
+      list.classList.add('hidden');
+      // auto-suggest branch from repo name
+      const branchInput = document.getElementById('sandbox-branch');
+      if (branchInput && !branchInput.value.trim()) {
+        branchInput.focus();
+      }
+    });
+
+    list.appendChild(item);
+  });
+
+  list.classList.remove('hidden');
+}
 
 function closeSandboxModal() {
   document.getElementById('sandbox-modal').classList.remove('open');
@@ -1498,11 +1563,17 @@ async function openSandboxModal() {
     if (match) machineSelect.value = match.ip;
   }
 
+  const ghUserInput = document.getElementById('sandbox-github-user');
+  ghUserInput.value = localStorage.getItem(SANDBOX_GH_USER_KEY) || '';
+
+  document.getElementById('sandbox-repo').value = '';
+  document.getElementById('sandbox-repo-suggestions').classList.add('hidden');
   document.getElementById('sandbox-branch').value = '';
   document.getElementById('sandbox-status').textContent = '';
   document.getElementById('sandbox-submit').disabled = false;
 
   await refreshSandboxList(machineSelect.value);
+  if (ghUserInput.value) _loadGithubRepos(ghUserInput.value);
 
   document.getElementById('sandbox-modal').classList.add('open');
   document.getElementById('sandbox-repo').focus();
@@ -1652,6 +1723,25 @@ async function init() {
   });
   document.getElementById('sandbox-machine').addEventListener('change', (e) => {
     refreshSandboxList(e.target.value);
+  });
+  document.getElementById('sandbox-repo').addEventListener('focus', _renderRepoSuggestions);
+  document.getElementById('sandbox-repo').addEventListener('input', _renderRepoSuggestions);
+  document.getElementById('sandbox-repo').addEventListener('blur', () => {
+    setTimeout(() => {
+      const list = document.getElementById('sandbox-repo-suggestions');
+      if (list) list.classList.add('hidden');
+    }, 150);
+  });
+  document.getElementById('sandbox-github-user').addEventListener('change', async (e) => {
+    localStorage.setItem(SANDBOX_GH_USER_KEY, e.target.value.trim());
+    await _loadGithubRepos(e.target.value);
+  });
+  document.getElementById('sandbox-fetch-repos').addEventListener('click', async () => {
+    const username = document.getElementById('sandbox-github-user').value.trim();
+    if (!username) return;
+    localStorage.setItem(SANDBOX_GH_USER_KEY, username);
+    await _loadGithubRepos(username);
+    document.getElementById('sandbox-repo').focus();
   });
   document.getElementById('panel-add').onclick = () => {
     if (!state.panelEditor) return;
