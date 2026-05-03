@@ -599,7 +599,7 @@ function resolveTabEndpoint(server, tab) {
   const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
   const snapshot = serviceSnapshotForServer(server);
   if (tab.service && snapshot && Array.isArray(snapshot.services)) {
-    const match = snapshot.services.find((service) => service.name === tab.service || service.label === tab.label);
+    const match = snapshot.services.find((service) => service.name === tab.service);
     if (match) {
       return {
         host,
@@ -1662,7 +1662,7 @@ async function submitSandboxModal() {
     ip: host,
     tabs: [normalizeTab({
       label: 'Terminal',
-      service: 'terminal',
+      service: 'container',
       port: result.ttyd_port,
     })],
   };
