@@ -1299,7 +1299,7 @@ function renderSidebar() {
 
   state.sessions.forEach((server) => {
     const row = document.createElement('div');
-    row.className = 'session-row';
+    row.className = 'session-row' + (server.name === state.activeSession ? ' active' : '');
     row.dataset.session = server.name;
     row.style.setProperty('--session-color', colorForSession(server));
 
@@ -1348,6 +1348,9 @@ function renderSidebar() {
     main.className = 'session-main' + (server.name === state.activeSession ? ' active' : '');
     main.onclick = () => selectSession(server);
 
+    const dot = document.createElement('span');
+    dot.className = 'session-dot';
+
     const text = document.createElement('div');
     text.className = 'session-text';
     const label = document.createElement('div');
@@ -1358,6 +1361,7 @@ function renderSidebar() {
     meta.textContent = sessionMachineHost(server) || server.ip || 'unknown-host';
     text.appendChild(label);
     text.appendChild(meta);
+    main.appendChild(dot);
     main.appendChild(text);
 
     const gear = document.createElement('button');

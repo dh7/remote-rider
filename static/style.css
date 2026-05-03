@@ -57,14 +57,24 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
 }
 
 .session-row {
-  border: 1px solid color-mix(in srgb, var(--session-color, #30344f) 40%, #30344f);
+  border: 1px solid color-mix(in srgb, var(--session-color, #30344f) 65%, #2a2f47);
   border-radius: 0.4rem;
   padding: 0.3rem;
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 0.3rem;
   align-items: center;
-  background: color-mix(in srgb, var(--session-color, transparent) 14%, #111327);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--session-color, transparent) 38%, transparent) 0, transparent 1rem),
+    color-mix(in srgb, var(--session-color, transparent) 20%, #111327);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.session-row.active {
+  border-color: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
 .session-row.dragging { opacity: 0.45; }
@@ -91,7 +101,7 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   color: #fff;
 }
 .session-main.active {
-  background: color-mix(in srgb, var(--session-color, transparent) 30%, #1a1f3e);
+  background: color-mix(in srgb, var(--session-color, transparent) 42%, #1a1f3e);
   color: #fff;
 }
 
@@ -100,8 +110,11 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   height: 0.65rem;
   border-radius: 50%;
   flex: 0 0 auto;
-  border: 1px solid #111;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  background: var(--session-color, #7d85a4);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 0 10px color-mix(in srgb, var(--session-color, transparent) 45%, transparent);
 }
 
 .session-text {
