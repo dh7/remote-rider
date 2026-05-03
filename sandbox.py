@@ -6,8 +6,9 @@ import time
 from typing import Any
 from urllib.request import Request as UrlRequest, urlopen
 
-from config import HERE
+from config import HERE, SERVICE_LOCK
 from host_utils import _is_local_host, _is_port_busy_for_bind, _normalize_host
+from storage import _load_service_registry, _save_service_registry
 
 
 def _docker_available() -> bool:
@@ -33,6 +34,22 @@ def _run_docker(args: list[str], timeout: int = 30) -> dict[str, Any]:
         }
     except subprocess.TimeoutExpired:
         return {"ok": False, "stdout": "", "stderr": "docker command timed out", "returncode": -1}
+
+
+def _container_running(container_id: str) -> bool:
+    result = _run_docker(["inspect", "--format", "{{.State.Running}}", container_id])
+    return result["ok"] and result["stdout"].strip() == "true"
+
+
+def _inspect_sandbox_labels(container_id_or_name: str) -> dict[str, str]:
+    result = _run_docker(["inspect", "--format", "{{json .Config.Labels}}", container_id_or_name])
+    if not result["ok"]:
+        return {}
+    try:
+        raw = json.loads(result["stdout"])
+        return {str(k): str(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
 
 
 def _sandbox_image_exists(image: str) -> bool:
@@ -121,12 +138,17 @@ def create_sandbox(
     container_name = f"claude-sandbox-{safe_branch}-{int(time.time()) % 100000}"
     source_label = local_path or repo_url
 
+    hub_port = os.getenv("HUB_PORT", "7000")
     args = [
         "run", "-d",
         "--name", container_name,
         "-p", f"{ttyd_port}:7681",
         "-e", f"BRANCH={branch}",
         "-e", "TERM=xterm-256color",
+        "-e", "HUB_HOST=host.docker.internal",
+        "-e", f"HUB_PORT={hub_port}",
+        "-e", f"CONTAINER_NAME={container_name}",
+        "--add-host=host.docker.internal:host-gateway",
         "--label", "remote-rider.sandbox=1",
         f"--label=remote-rider.branch={branch}",
         f"--label=remote-rider.repo={source_label}",
@@ -149,9 +171,25 @@ def create_sandbox(
     if not result["ok"]:
         return {"status": "error", "reason": result["stderr"][:300]}
 
+    container_id = result["stdout"][:12]
+    registry_entry = {
+        "kind": "sandbox",
+        "name": f"sandbox-{container_name}",
+        "port": ttyd_port,
+        "container_id": container_id,
+        "container_name": container_name,
+        "branch": branch,
+        "repo": source_label,
+        "started_at": int(time.time()),
+    }
+    with SERVICE_LOCK:
+        rows = _load_service_registry()
+        rows.append(registry_entry)
+        _save_service_registry(rows)
+
     return {
         "status": "ok",
-        "container_id": result["stdout"][:12],
+        "container_id": container_id,
         "name": container_name,
         "ttyd_port": ttyd_port,
         "branch": branch,
@@ -162,6 +200,19 @@ def create_sandbox(
 def stop_sandbox(container_id: str) -> dict[str, Any]:
     stop = _run_docker(["stop", container_id], timeout=15)
     rm = _run_docker(["rm", container_id], timeout=10)
+    with SERVICE_LOCK:
+        rows = _load_service_registry()
+        short = container_id[:12]
+        rows = [
+            r for r in rows
+            if not (
+                r.get("kind") == "sandbox" and (
+                    str(r.get("container_id", "")).startswith(short) or
+                    str(r.get("container_name", "")) == container_id
+                )
+            )
+        ]
+        _save_service_registry(rows)
     return {"ok": stop["ok"], "removed": rm["ok"]}
 
 
@@ -253,5 +304,25 @@ def clone_sandbox_proxy(host: str, hub_port: int, container_id: str, new_branch:
     if _is_local_host(cleaned):
         return clone_sandbox(container_id, new_branch)
     return _proxy_post(cleaned, hub_port, "/sandbox/clone", {
+        "container_id": container_id, "new_branch": new_branch,
+    }, timeout=120)
+
+
+def branch_sandbox(container_id_or_name: str, new_branch: str) -> dict[str, Any]:
+    labels = _inspect_sandbox_labels(container_id_or_name)
+    repo = labels.get("remote-rider.repo", "")
+    if not repo:
+        return {"status": "error", "reason": "container has no remote-rider.repo label"}
+    expanded = os.path.expanduser(repo)
+    if os.path.isabs(expanded):
+        return create_sandbox(branch=new_branch, local_path=repo)
+    return create_sandbox(branch=new_branch, repo_url=repo)
+
+
+def branch_sandbox_proxy(host: str, hub_port: int, container_id: str, new_branch: str) -> dict[str, Any]:
+    cleaned = _normalize_host(host)
+    if _is_local_host(cleaned):
+        return branch_sandbox(container_id, new_branch)
+    return _proxy_post(cleaned, hub_port, "/sandbox/branch", {
         "container_id": container_id, "new_branch": new_branch,
     }, timeout=120)

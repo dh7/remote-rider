@@ -135,3 +135,13 @@ class SandboxCloneRequest(BaseModel):
 class SandboxCloneProxyRequest(SandboxCloneRequest):
     host: str
     hub_port: int = Field(default=7000, ge=1, le=65535)
+
+
+class SandboxBranchRequest(BaseModel):
+    container_id: str = Field(min_length=1)
+    new_branch: str = Field(min_length=1, max_length=200)
+
+
+class SandboxBranchProxyRequest(SandboxBranchRequest):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)

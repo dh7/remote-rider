@@ -14,11 +14,17 @@ from storage import _load_service_registry, _save_service_registry
 
 def _cleanup_service_registry(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     from host_utils import _pid_alive
+    from sandbox import _container_running
     alive: list[dict[str, Any]] = []
     for row in rows:
-        pid = row.get("pid")
-        if isinstance(pid, int) and _pid_alive(pid):
-            alive.append(row)
+        if str(row.get("kind")) == "sandbox":
+            cid = str(row.get("container_id") or row.get("container_name", ""))
+            if cid and _container_running(cid):
+                alive.append(row)
+        else:
+            pid = row.get("pid")
+            if isinstance(pid, int) and _pid_alive(pid):
+                alive.append(row)
     return alive
 
 
@@ -36,27 +42,38 @@ def _local_services_snapshot() -> dict[str, Any]:
         rows = _cleanup_service_registry(_load_service_registry())
         _save_service_registry(rows)
         for row in rows:
-            if str(row.get("kind")) != "fileserver":
-                continue
+            kind = str(row.get("kind", ""))
             try:
                 port = int(row.get("port", 0))
             except Exception:
                 continue
             if port <= 0:
                 continue
-            pid = row.get("pid") if isinstance(row.get("pid"), int) else None
-            entry = _service_entry(
-                str(row.get("name", "files-extra")),
-                port,
-                enabled=True,
-                pid=pid,
-            )
-            entry["label"] = "Files"
-            entry["path"] = "/files"
-            entry["protocol"] = "http"
-            entry["launchable"] = True
-            entry["kind"] = "fileserver"
-            services.append(entry)
+            if kind == "fileserver":
+                pid = row.get("pid") if isinstance(row.get("pid"), int) else None
+                entry = _service_entry(
+                    str(row.get("name", "files-extra")),
+                    port,
+                    enabled=True,
+                    pid=pid,
+                )
+                entry["label"] = "Files"
+                entry["path"] = "/files"
+                entry["protocol"] = "http"
+                entry["launchable"] = True
+                entry["kind"] = "fileserver"
+                services.append(entry)
+            elif kind == "sandbox":
+                name = str(row.get("name", f"sandbox-{port}"))
+                entry = _service_entry(name, port, enabled=True)
+                entry["label"] = f"Sandbox: {row.get('branch', name)}"
+                entry["kind"] = "sandbox"
+                entry["container_id"] = str(row.get("container_id", ""))
+                entry["branch"] = str(row.get("branch", ""))
+                entry["repo"] = str(row.get("repo", ""))
+                entry["launchable"] = True
+                entry["embeddable"] = True
+                services.append(entry)
 
     return {
         "host": socket.gethostname(),

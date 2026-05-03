@@ -32,6 +32,8 @@ from models import (
     RemoteUpdateProxyRequest,
     RemoteUpdateRequest,
     ReorderRequest,
+    SandboxBranchProxyRequest,
+    SandboxBranchRequest,
     SandboxCloneProxyRequest,
     SandboxCloneRequest,
     SandboxCreateProxyRequest,
@@ -80,6 +82,8 @@ from tmux import (
     _tmux_session_exists,
 )
 from sandbox import (
+    branch_sandbox,
+    branch_sandbox_proxy,
     clone_sandbox,
     clone_sandbox_proxy,
     create_sandbox,
@@ -236,6 +240,41 @@ curl -X POST {base}/admin/update-all-remotes \\
 curl -X POST {base}/admin/update-diagnostics/proxy \\
   -H 'content-type: application/json' \\
   -d '{{"host":"100.119.43.10","branch":"main"}}'
+
+Sandbox (Docker-based isolated Claude sessions):
+- List local containers: GET {base}/sandbox/list
+- List containers on remote hub: GET {base}/sandbox/list/proxy?host=<ip>&hub_port=7000
+- Create sandbox: POST {base}/sandbox/create
+- Create sandbox on remote hub: POST {base}/sandbox/create/proxy
+- Stop & remove sandbox: POST {base}/sandbox/stop
+- Stop & remove on remote hub: POST {base}/sandbox/stop/proxy
+- Clone container to new branch: POST {base}/sandbox/clone
+- Clone container on remote hub: POST {base}/sandbox/clone/proxy
+- Spawn sibling from same source: POST {base}/sandbox/branch (callable from inside a container via $HUB_HOST/$HUB_PORT env vars)
+- Spawn sibling on remote hub: POST {base}/sandbox/branch/proxy
+
+Sandbox env vars injected into each container:
+- HUB_HOST=host.docker.internal  (resolves to the host running remote-rider)
+- HUB_PORT=<hub port>
+- CONTAINER_NAME=<container name>
+- BRANCH=<branch name>
+- REPO_URL=<git url>  (if cloned from GitHub)
+
+curl -X POST {base}/sandbox/create \\
+  -H 'content-type: application/json' \\
+  -d '{{"branch":"feature/xyz","repo_url":"https://github.com/user/repo"}}'
+
+curl -X POST {base}/sandbox/create \\
+  -H 'content-type: application/json' \\
+  -d '{{"branch":"main","local_path":"/home/user/myproject"}}'
+
+curl -X POST $HUB_HOST:$HUB_PORT/sandbox/branch \\
+  -H 'content-type: application/json' \\
+  -d '{{"container_id":"'"$CONTAINER_NAME"'","new_branch":"feature/review"}}'
+
+curl -X POST {base}/sandbox/stop \\
+  -H 'content-type: application/json' \\
+  -d '{{"container_id":"abc123def456"}}'
 """
 
 
@@ -829,6 +868,18 @@ def sandbox_clone_local(payload: SandboxCloneRequest) -> dict[str, Any]:
 def sandbox_clone_proxy_route(payload: SandboxCloneProxyRequest) -> dict[str, Any]:
     _require_control_api()
     return clone_sandbox_proxy(payload.host, payload.hub_port, payload.container_id, payload.new_branch)
+
+
+@app.post("/sandbox/branch")
+def sandbox_branch_local(payload: SandboxBranchRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return branch_sandbox(payload.container_id, payload.new_branch)
+
+
+@app.post("/sandbox/branch/proxy")
+def sandbox_branch_proxy_route(payload: SandboxBranchProxyRequest) -> dict[str, Any]:
+    _require_control_api()
+    return branch_sandbox_proxy(payload.host, payload.hub_port, payload.container_id, payload.new_branch)
 
 
 @app.post("/remote/reorder")
