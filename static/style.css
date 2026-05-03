@@ -57,7 +57,8 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
 }
 
 .session-row {
-  border: 1px solid color-mix(in srgb, var(--session-color, #30344f) 65%, #2a2f47);
+  border: 1px solid color-mix(in srgb, var(--session-color, #30344f) 72%, #252a3f);
+  border-left: 6px solid var(--session-color, #7d85a4);
   border-radius: 0.4rem;
   padding: 0.3rem;
   display: grid;
@@ -65,16 +66,18 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   gap: 0.3rem;
   align-items: center;
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--session-color, transparent) 38%, transparent) 0, transparent 1rem),
-    color-mix(in srgb, var(--session-color, transparent) 20%, #111327);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    linear-gradient(90deg, color-mix(in srgb, var(--session-color, transparent) 48%, transparent) 0, transparent 1.2rem),
+    color-mix(in srgb, var(--session-color, transparent) 28%, #111327);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .session-row.active {
-  border-color: rgba(255, 255, 255, 0.96);
+  border: 2px solid rgba(255, 255, 255, 0.98);
+  border-left: 6px solid #fff;
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
-    0 0 0 1px rgba(255, 255, 255, 0.2);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.24),
+    0 0 18px rgba(255, 255, 255, 0.12);
 }
 
 .session-row.dragging { opacity: 0.45; }
@@ -101,20 +104,20 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   color: #fff;
 }
 .session-main.active {
-  background: color-mix(in srgb, var(--session-color, transparent) 42%, #1a1f3e);
+  background: color-mix(in srgb, var(--session-color, transparent) 58%, #1a1f3e);
   color: #fff;
 }
 
 .session-dot {
-  width: 0.65rem;
-  height: 0.65rem;
+  width: 0.82rem;
+  height: 0.82rem;
   border-radius: 50%;
   flex: 0 0 auto;
   background: var(--session-color, #7d85a4);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.34);
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.35),
-    0 0 10px color-mix(in srgb, var(--session-color, transparent) 45%, transparent);
+    0 0 14px color-mix(in srgb, var(--session-color, transparent) 58%, transparent);
 }
 
 .session-text {
