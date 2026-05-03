@@ -484,6 +484,21 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   line-height: 1rem;
 }
 
+.sandbox-running-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  align-items: center;
+  border: 1px solid #2b344f;
+  border-left: 3px solid #3a6b4a;
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  background: #101d14;
+}
+.sandbox-running-info { min-width: 0; }
+.sandbox-running-branch { font-size: 0.82rem; color: #a8e6bc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sandbox-running-meta { font-size: 0.69rem; color: #5a8a6a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .repo-combo { position: relative; }
 .repo-suggestions {
   position: absolute;

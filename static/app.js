@@ -1571,6 +1571,7 @@ async function openSandboxModal() {
   document.getElementById('sandbox-branch').value = '';
   document.getElementById('sandbox-status').textContent = '';
   document.getElementById('sandbox-submit').disabled = false;
+  updateSandboxSourceVisibility();
 
   await refreshSandboxList(machineSelect.value);
   if (ghUserInput.value) _loadGithubRepos(ghUserInput.value);
@@ -1580,50 +1581,113 @@ async function openSandboxModal() {
 }
 
 async function refreshSandboxList(host) {
-  const wrap = document.getElementById('sandbox-existing-wrap');
-  const select = document.getElementById('sandbox-clone-from');
-  select.innerHTML = '';
+  const runningWrap = document.getElementById('sandbox-running-wrap');
+  const runningList = document.getElementById('sandbox-running-list');
+  const cloneWrap = document.getElementById('sandbox-existing-wrap');
+  const cloneSelect = document.getElementById('sandbox-clone-from');
+  runningList.innerHTML = '';
+  cloneSelect.innerHTML = '';
 
   try {
     const query = new URLSearchParams({ host, hub_port: '7000' }).toString();
     const payload = await fetch(`/sandbox/list/proxy?${query}`).then((r) => r.json());
     const sandboxes = Array.isArray(payload.sandboxes) ? payload.sandboxes : [];
+
     if (sandboxes.length) {
+      sandboxes.forEach((sb) => {
+        const row = document.createElement('div');
+        row.className = 'sandbox-running-row';
+
+        const info = document.createElement('div');
+        info.className = 'sandbox-running-info';
+        const branch = document.createElement('div');
+        branch.className = 'sandbox-running-branch';
+        branch.textContent = sb.branch || sb.name;
+        const meta = document.createElement('div');
+        meta.className = 'sandbox-running-meta';
+        meta.textContent = `${sb.status}${sb.repo ? '  ·  ' + sb.repo.split('/').slice(-1)[0] : ''}`;
+        info.appendChild(branch);
+        info.appendChild(meta);
+
+        const openBtn = document.createElement('button');
+        openBtn.className = 'secondary-btn';
+        openBtn.type = 'button';
+        openBtn.textContent = 'Select';
+        openBtn.title = 'Jump to this session in the sidebar';
+        openBtn.onclick = () => {
+          const session = state.sessions.find((s) => {
+            const t = (s.tabs || []).find((tab) => tab.port === sb.ttyd_port);
+            return t && (sessionMachineHost(s) || s.ip) === host;
+          });
+          if (session) { closeSandboxModal(); selectSession(session); }
+        };
+
+        const stopBtn = document.createElement('button');
+        stopBtn.className = 'danger-btn';
+        stopBtn.type = 'button';
+        stopBtn.textContent = 'Stop';
+        stopBtn.onclick = async () => {
+          stopBtn.disabled = true;
+          stopBtn.textContent = '…';
+          await fetch('/sandbox/stop/proxy', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ host, hub_port: 7000, container_id: sb.id }),
+          });
+          await refreshSandboxList(host);
+        };
+
+        row.appendChild(info);
+        row.appendChild(openBtn);
+        row.appendChild(stopBtn);
+        runningList.appendChild(row);
+      });
+      runningWrap.classList.remove('hidden');
+
       const none = document.createElement('option');
       none.value = '';
-      none.textContent = '— none (create fresh) —';
-      select.appendChild(none);
+      none.textContent = '— create fresh —';
+      cloneSelect.appendChild(none);
       sandboxes.forEach((sb) => {
         const opt = document.createElement('option');
         opt.value = sb.id;
         opt.textContent = `${sb.branch || sb.name} (${sb.status})`;
-        select.appendChild(opt);
+        cloneSelect.appendChild(opt);
       });
-      wrap.classList.remove('hidden');
+      cloneWrap.classList.remove('hidden');
     } else {
-      wrap.classList.add('hidden');
+      runningWrap.classList.add('hidden');
+      cloneWrap.classList.add('hidden');
     }
   } catch (_) {
-    wrap.classList.add('hidden');
+    runningWrap.classList.add('hidden');
+    cloneWrap.classList.add('hidden');
   }
+}
+
+function updateSandboxSourceVisibility() {
+  const source = document.querySelector('input[name="sandbox-source"]:checked')?.value || 'path';
+  document.getElementById('sandbox-path-wrap').classList.toggle('hidden', source !== 'path');
+  document.getElementById('sandbox-github-wrap').classList.toggle('hidden', source !== 'github');
 }
 
 async function submitSandboxModal() {
   const host = document.getElementById('sandbox-machine').value;
-  const repoUrl = document.getElementById('sandbox-repo').value.trim();
   const branch = document.getElementById('sandbox-branch').value.trim();
   const cloneFrom = document.getElementById('sandbox-clone-from').value;
+  const source = document.querySelector('input[name="sandbox-source"]:checked')?.value || 'path';
+  const repoUrl = source === 'github' ? document.getElementById('sandbox-repo').value.trim() : '';
+  const localPath = source === 'path' ? document.getElementById('sandbox-local-path').value.trim() : '';
   const statusEl = document.getElementById('sandbox-status');
   const submitBtn = document.getElementById('sandbox-submit');
 
-  if (!repoUrl || !branch) {
-    statusEl.textContent = 'Please enter a repository URL and branch name.';
-    return;
-  }
+  if (!branch) { statusEl.textContent = 'Please enter a branch name.'; return; }
+  if (source === 'github' && !repoUrl) { statusEl.textContent = 'Please enter a repository URL.'; return; }
+  if (source === 'path' && !localPath) { statusEl.textContent = 'Please enter the repo path on the target machine.'; return; }
 
   statusEl.textContent = cloneFrom
     ? `Cloning sandbox to branch "${branch}"...`
-    : `Creating sandbox for "${branch}" — building image if needed, this may take a minute...`;
+    : `Creating sandbox — building image if needed, this may take a minute...`;
   submitBtn.disabled = true;
 
   let result;
@@ -1638,7 +1702,7 @@ async function submitSandboxModal() {
       result = await fetch('/sandbox/create/proxy', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ host, hub_port: 7000, repo_url: repoUrl, branch }),
+        body: JSON.stringify({ host, hub_port: 7000, repo_url: repoUrl, local_path: localPath, branch }),
       }).then((r) => r.json());
     }
   } catch (err) {
@@ -1723,6 +1787,9 @@ async function init() {
   });
   document.getElementById('sandbox-machine').addEventListener('change', (e) => {
     refreshSandboxList(e.target.value);
+  });
+  document.querySelectorAll('input[name="sandbox-source"]').forEach((r) => {
+    r.addEventListener('change', updateSandboxSourceVisibility);
   });
   document.getElementById('sandbox-repo').addEventListener('focus', _renderRepoSuggestions);
   document.getElementById('sandbox-repo').addEventListener('input', _renderRepoSuggestions);

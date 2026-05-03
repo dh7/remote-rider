@@ -786,13 +786,13 @@ def manage_remote(payload: RemoteRequest) -> dict[str, Any]:
 @app.post("/sandbox/create")
 def sandbox_create(payload: SandboxCreateRequest) -> dict[str, Any]:
     _require_runtime_api()
-    return create_sandbox(payload.repo_url, payload.branch, payload.auth_path, payload.image)
+    return create_sandbox(branch=payload.branch, repo_url=payload.repo_url, local_path=payload.local_path, auth_path=payload.auth_path, image=payload.image)
 
 
 @app.post("/sandbox/create/proxy")
 def sandbox_create_proxy_route(payload: SandboxCreateProxyRequest) -> dict[str, Any]:
     _require_control_api()
-    return create_sandbox_proxy(payload.host, payload.hub_port, payload.repo_url, payload.branch, payload.auth_path, payload.image)
+    return create_sandbox_proxy(payload.host, payload.hub_port, branch=payload.branch, repo_url=payload.repo_url, local_path=payload.local_path, auth_path=payload.auth_path, image=payload.image)
 
 
 @app.get("/sandbox/list")

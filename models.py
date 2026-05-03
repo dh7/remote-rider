@@ -106,7 +106,8 @@ class RemoteGitCheckProxyRequest(BaseModel):
 
 
 class SandboxCreateRequest(BaseModel):
-    repo_url: str = Field(min_length=1)
+    repo_url: str = ""
+    local_path: str = ""
     branch: str = Field(default="main", min_length=1, max_length=200)
     auth_path: str = ""
     image: str = "claude-sandbox:latest"

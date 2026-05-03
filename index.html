@@ -140,36 +140,59 @@
 
   <div id="sandbox-modal">
     <div id="sandbox-card">
-      <h2>New Feature Sandbox</h2>
-      <div class="form-row">
-        <label for="sandbox-machine">Target Machine</label>
-        <select id="sandbox-machine"></select>
+      <h2>Feature Sandbox</h2>
+
+      <div id="sandbox-running-wrap" class="section-card hidden">
+        <div class="section-head"><h3>Running Sandboxes</h3></div>
+        <div id="sandbox-running-list" class="service-list"></div>
       </div>
-      <div class="inline-row">
+
+      <div class="section-card">
+        <div class="section-head"><h3>Create New</h3></div>
         <div class="form-row">
-          <label for="sandbox-github-user">GitHub user</label>
-          <input id="sandbox-github-user" type="text" placeholder="username">
+          <label for="sandbox-machine">Target Machine</label>
+          <select id="sandbox-machine"></select>
         </div>
-        <div class="form-row" style="justify-content:flex-end;">
-          <label>&nbsp;</label>
-          <button id="sandbox-fetch-repos" class="secondary-btn" type="button">Fetch repos</button>
+        <div class="form-row">
+          <label>Repo Source</label>
+          <div class="radio-row">
+            <label><input type="radio" name="sandbox-source" value="path" checked> Copy from machine</label>
+            <label><input type="radio" name="sandbox-source" value="github"> Clone from GitHub</label>
+          </div>
+        </div>
+        <div id="sandbox-path-wrap" class="form-row">
+          <label for="sandbox-local-path">Repo path on target machine</label>
+          <input id="sandbox-local-path" type="text" placeholder="/home/user/my-project">
+        </div>
+        <div id="sandbox-github-wrap" class="hidden">
+          <div class="inline-row">
+            <div class="form-row">
+              <label for="sandbox-github-user">GitHub user</label>
+              <input id="sandbox-github-user" type="text" placeholder="username">
+            </div>
+            <div class="form-row" style="justify-content:flex-end;">
+              <label>&nbsp;</label>
+              <button id="sandbox-fetch-repos" class="secondary-btn" type="button">Fetch repos</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="sandbox-repo">Repository</label>
+            <div class="repo-combo">
+              <input id="sandbox-repo" type="text" placeholder="https://github.com/user/repo.git" autocomplete="off">
+              <div id="sandbox-repo-suggestions" class="repo-suggestions hidden"></div>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="sandbox-branch">Feature Branch</label>
+          <input id="sandbox-branch" type="text" placeholder="feature/my-feature">
+        </div>
+        <div id="sandbox-existing-wrap" class="form-row hidden">
+          <label for="sandbox-clone-from">Clone from existing sandbox instead</label>
+          <select id="sandbox-clone-from"></select>
         </div>
       </div>
-      <div class="form-row">
-        <label for="sandbox-repo">Repository</label>
-        <div class="repo-combo">
-          <input id="sandbox-repo" type="text" placeholder="https://github.com/user/repo.git" autocomplete="off">
-          <div id="sandbox-repo-suggestions" class="repo-suggestions hidden"></div>
-        </div>
-      </div>
-      <div class="form-row">
-        <label for="sandbox-branch">Feature Branch</label>
-        <input id="sandbox-branch" type="text" placeholder="feature/my-feature">
-      </div>
-      <div id="sandbox-existing-wrap" class="form-row hidden">
-        <label for="sandbox-clone-from">Clone from existing sandbox</label>
-        <select id="sandbox-clone-from"></select>
-      </div>
+
       <div id="sandbox-status" class="muted-note"></div>
       <div id="sandbox-actions">
         <button id="sandbox-cancel" class="secondary-btn" type="button">Cancel</button>

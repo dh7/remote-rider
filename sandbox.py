@@ -96,13 +96,17 @@ def list_sandboxes() -> list[dict[str, Any]]:
 
 
 def create_sandbox(
-    repo_url: str,
     branch: str,
+    repo_url: str = "",
+    local_path: str = "",
     auth_path: str = "",
     image: str = "claude-sandbox:latest",
 ) -> dict[str, Any]:
     if not _docker_available():
         return {"status": "error", "reason": "docker not available on this machine"}
+
+    if not repo_url and not local_path:
+        return {"status": "error", "reason": "provide either repo_url or local_path"}
 
     if not _sandbox_image_exists(image):
         build = _build_sandbox_image(image)
@@ -115,19 +119,26 @@ def create_sandbox(
     ttyd_port = _pick_sandbox_port(7700)
     safe_branch = branch.replace("/", "-").replace(" ", "-")[:60]
     container_name = f"claude-sandbox-{safe_branch}-{int(time.time()) % 100000}"
+    source_label = local_path or repo_url
 
     args = [
         "run", "-d",
         "--name", container_name,
         "-p", f"{ttyd_port}:7681",
-        "-e", f"REPO_URL={repo_url}",
         "-e", f"BRANCH={branch}",
         "-e", "TERM=xterm-256color",
         "--label", "remote-rider.sandbox=1",
         f"--label=remote-rider.branch={branch}",
-        f"--label=remote-rider.repo={repo_url}",
+        f"--label=remote-rider.repo={source_label}",
         f"--label=remote-rider.ttyd_port={ttyd_port}",
     ]
+
+    if local_path:
+        # Mount the existing repo directly — preserves git history, config, Claude memory
+        expanded = os.path.expanduser(local_path)
+        args += ["-v", f"{expanded}:/workspace"]
+    else:
+        args += ["-e", f"REPO_URL={repo_url}"]
 
     if os.path.isdir(auth_path):
         args += ["-v", f"{auth_path}:/root/.claude"]
@@ -144,7 +155,7 @@ def create_sandbox(
         "name": container_name,
         "ttyd_port": ttyd_port,
         "branch": branch,
-        "repo": repo_url,
+        "repo": source_label,
     }
 
 
@@ -214,12 +225,12 @@ def _proxy_get(host: str, hub_port: int, path: str, timeout: int = 15) -> dict[s
         return {"status": "error", "reason": str(exc), "sandboxes": []}
 
 
-def create_sandbox_proxy(host: str, hub_port: int, repo_url: str, branch: str, auth_path: str, image: str) -> dict[str, Any]:
+def create_sandbox_proxy(host: str, hub_port: int, branch: str, repo_url: str = "", local_path: str = "", auth_path: str = "", image: str = "claude-sandbox:latest") -> dict[str, Any]:
     cleaned = _normalize_host(host)
     if _is_local_host(cleaned):
-        return create_sandbox(repo_url, branch, auth_path, image)
+        return create_sandbox(branch=branch, repo_url=repo_url, local_path=local_path, auth_path=auth_path, image=image)
     return _proxy_post(cleaned, hub_port, "/sandbox/create", {
-        "repo_url": repo_url, "branch": branch, "auth_path": auth_path, "image": image,
+        "branch": branch, "repo_url": repo_url, "local_path": local_path, "auth_path": auth_path, "image": image,
     }, timeout=120)
 
 
