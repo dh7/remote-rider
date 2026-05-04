@@ -5,7 +5,7 @@ from typing import Any
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -406,11 +406,12 @@ def admin_update_remote_proxy(payload: RemoteUpdateProxyRequest) -> dict[str, An
 
 
 @app.post("/admin/update-all-remotes")
-def admin_update_all_remotes(payload: UpdateAllRemotesRequest) -> dict[str, Any]:
+def admin_update_all_remotes(payload: UpdateAllRemotesRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
     _require_control_api()
     inventory = _load_machine_inventory()
     selected = set(payload.machines or [])
     results: list[dict[str, Any]] = []
+    self_update_branch: str | None = None
 
     for machine in inventory:
         name = str(machine.get("name", "")).strip()
@@ -419,22 +420,25 @@ def admin_update_all_remotes(payload: UpdateAllRemotesRequest) -> dict[str, Any]
             continue
         if selected and name not in selected:
             continue
-        result = _schedule_remote_update_proxy(
-            RemoteUpdateProxyRequest(
-                host=host,
-                hub_port=7000,
-                branch=payload.branch,
+        cleaned = _normalize_host(host)
+        if _is_local_host(cleaned):
+            # Defer local machine update via background task so the response is sent first
+            self_update_branch = payload.branch
+            result = {"status": "scheduled", "branch": payload.branch, "machine": name, "host": host}
+        else:
+            result = _schedule_remote_update_proxy(
+                RemoteUpdateProxyRequest(host=host, hub_port=7000, branch=payload.branch)
             )
-        )
-        result.setdefault("machine", name)
-        result.setdefault("host", host)
+            result.setdefault("machine", name)
+            result.setdefault("host", host)
         results.append(result)
 
     if not selected or "controller" in selected:
-        self_result = _schedule_remote_update_local(payload.branch, delay=8)
-        self_result["machine"] = "controller"
-        self_result["host"] = "127.0.0.1"
-        results.append(self_result)
+        self_update_branch = payload.branch
+        results.append({"status": "scheduled", "machine": "controller", "host": "127.0.0.1", "branch": payload.branch})
+
+    if self_update_branch is not None:
+        background_tasks.add_task(_schedule_remote_update_local, self_update_branch, 3)
 
     return {
         "status": "ok",
