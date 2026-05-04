@@ -413,7 +413,27 @@ def admin_update_all_remotes(payload: UpdateAllRemotesRequest, background_tasks:
     results: list[dict[str, Any]] = []
     self_update_branch: str | None = None
 
-    for machine in inventory:
+    # Merge session machines into the update target list so any machine with
+    # a session appears here without needing a separate machines.json entry.
+    seen_hosts: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for m in inventory:
+        h = _machine_host_from_inventory(m)
+        if h:
+            seen_hosts.add(h)
+        merged.append(m)
+    with SESSIONS_LOCK:
+        sessions = _load_normalized_control_sessions()
+    for s in sessions:
+        machine = s.get("machine", {})
+        host = str(machine.get("host", "")).strip()
+        name = str(machine.get("name", "") or s.get("name", "")).strip()
+        if not host or not name or host in seen_hosts or host == "127.0.0.1":
+            continue
+        seen_hosts.add(host)
+        merged.append({"name": name, "ip": host})
+
+    for machine in merged:
         name = str(machine.get("name", "")).strip()
         host = _machine_host_from_inventory(machine)
         if not name or not host:
