@@ -469,11 +469,15 @@ function colorForSession(server) {
 
 function updateSidebarColor() {
   const sidebar = document.getElementById('sidebar');
+  const root = document.documentElement;
   const active = state.sessions.find((s) => s.name === state.activeSession);
   if (active) {
-    sidebar.style.setProperty('--active-color', colorForSession(active));
+    const color = colorForSession(active);
+    sidebar.style.setProperty('--active-color', color);
+    root.style.setProperty('--active-color', color);
   } else {
     sidebar.style.removeProperty('--active-color');
+    root.style.removeProperty('--active-color');
   }
 }
 
