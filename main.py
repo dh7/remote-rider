@@ -430,6 +430,12 @@ def admin_update_all_remotes(payload: UpdateAllRemotesRequest) -> dict[str, Any]
         result.setdefault("host", host)
         results.append(result)
 
+    if not selected or "controller" in selected:
+        self_result = _schedule_remote_update_local(payload.branch)
+        self_result["machine"] = "controller"
+        self_result["host"] = "127.0.0.1"
+        results.append(self_result)
+
     return {
         "status": "ok",
         "branch": payload.branch,
