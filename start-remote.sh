@@ -82,7 +82,7 @@ choose_port() {
   while true; do
     selected="$(pick_free_port "$selected")"
     conflict=0
-    for used in "${used_ports[@]}"; do
+    for used in "${used_ports[@]+"${used_ports[@]}"}"; do
       if [[ -n "$used" && "$selected" == "$used" ]]; then
         conflict=1
         selected=$((selected + 1))
