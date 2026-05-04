@@ -72,7 +72,7 @@ def _local_update_diagnostics(branch: str) -> dict[str, Any]:
     }
 
 
-def _schedule_remote_update_local(branch: str) -> dict[str, Any]:
+def _schedule_remote_update_local(branch: str, delay: int = 1) -> dict[str, Any]:
     branch_name = branch.strip() or "main"
     script_path = HERE / "update-remote.sh"
     if not script_path.exists():
@@ -81,7 +81,7 @@ def _schedule_remote_update_local(branch: str) -> dict[str, Any]:
             "reason": f"missing {script_path.name}",
         }
 
-    command = f"sleep 1; {shlex.quote(str(script_path))} {shlex.quote(branch_name)}"
+    command = f"sleep {delay}; {shlex.quote(str(script_path))} {shlex.quote(branch_name)}"
     with open(os.devnull, "wb") as devnull:
         proc = subprocess.Popen(
             ["/bin/bash", "-lc", command],
