@@ -86,7 +86,18 @@ Examples:
 - `rr-files /path` — starts a file browser for that path, adds a Files tab
 - `rr-files /path/a` + `rr-files /path/b` — two separate file tabs in the same session
 - `rr-skill` — starts a Skills tab that manages project-scoped dh7skills access
+- `rr-notes` — starts a Notes tab for `Agents.md`, `TODO.md`, and `STATUS.md`
 - Agents can do the same: spawn any small HTTP server, register it as a tab, expose it to the operator
+
+## Project Notes & Status
+
+`rr-notes` exposes the project handoff surface in a Remote Rider tab:
+
+- `Agents.md` / `AGENTS.md` / `CLAUDE.md` — durable project intent and agent rules.
+- `TODO.md` — shared project work queue. The Notes UI can create it when missing.
+- `STATUS.md` — current/last session handoff. The Notes UI can create it when missing.
+
+Agents should update `STATUS.md` from time to time during meaningful work, especially before stopping, after commits, after launches, or when the current state would otherwise be hard to reconstruct. Keep `TODO.md` for durable work items and `STATUS.md` for current focus, recent changes, current state, next steps, and open questions.
 
 ## Skill Management Boundary
 

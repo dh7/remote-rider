@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+"""
+rr-notes — Remote Rider project notes/status tab.
+
+Shows the durable agent instructions, a project TODO list, and a session handoff
+status file. Missing TODO.md and STATUS.md can be created from the UI.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+
+FILES = {
+    "agent": ["Agents.md", "AGENTS.md", "CLAUDE.md"],
+    "todo": ["TODO.md"],
+    "status": ["STATUS.md"],
+}
+
+DEFAULT_TODO = """# TODO
+
+## Next
+- [ ] 
+
+## Done
+- [ ] 
+"""
+
+DEFAULT_STATUS = """# Status
+
+## Current Focus
+
+
+## Last Updated
+
+
+## What Changed
+
+
+## Current State
+
+
+## Next Steps
+
+
+## Open Questions
+
+"""
+
+HTML = r"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notes</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100vh; display: flex; flex-direction: column; background: #101216; color: #e8ebf2; font: 14px system-ui, sans-serif; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 10px 12px; border-bottom: 1px solid #2b3038; background: #151920; }
+    h1 { font-size: 16px; margin: 0; }
+    .muted { color: #9ca5b3; font-size: 12px; }
+    .tabs { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid #272d36; background: #11151b; }
+    button { border: 1px solid #3b4656; background: #202837; color: #eef2f8; border-radius: 6px; padding: 6px 9px; cursor: pointer; }
+    button:hover { background: #283347; }
+    button.active { border-color: #4b7fb8; background: #223a58; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 42%) 1fr; }
+    .editor, .preview { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+    .editor { border-right: 1px solid #272d36; }
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; padding: 8px 10px; border-bottom: 1px solid #272d36; background: #141922; }
+    textarea { flex: 1; width: 100%; resize: none; border: 0; outline: 0; padding: 12px; background: #0d1015; color: #e8ebf2; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.45; }
+    article { flex: 1; overflow: auto; padding: 16px 20px; line-height: 1.5; }
+    article h1, article h2, article h3 { margin: 1em 0 .4em; }
+    article h1:first-child, article h2:first-child { margin-top: 0; }
+    article pre { background: #0d1015; border: 1px solid #29303a; border-radius: 6px; padding: 10px; overflow-x: auto; }
+    article code { background: #1c222c; border-radius: 4px; padding: 1px 4px; }
+    .status-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } .editor { border-right: 0; border-bottom: 1px solid #272d36; min-height: 42vh; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Notes</h1>
+      <div class="muted" id="project"></div>
+    </div>
+    <div class="status-grid">
+      <span class="muted" id="git"></span>
+      <button onclick="refresh()">Refresh</button>
+    </div>
+  </header>
+  <nav class="tabs">
+    <button id="tab-agent" onclick="selectFile('agent')">Agent</button>
+    <button id="tab-todo" onclick="selectFile('todo')">Todo</button>
+    <button id="tab-status" onclick="selectFile('status')">Status</button>
+  </nav>
+  <main>
+    <section class="editor">
+      <div class="bar">
+        <div>
+          <strong id="title"></strong>
+          <span class="muted" id="path"></span>
+        </div>
+        <div>
+          <button id="create" onclick="createFile()">Create</button>
+          <button id="save" onclick="saveFile()">Save</button>
+        </div>
+      </div>
+      <textarea id="text" spellcheck="false"></textarea>
+    </section>
+    <section class="preview">
+      <div class="bar">
+        <strong>Preview</strong>
+        <span class="muted" id="message"></span>
+      </div>
+      <article id="preview"></article>
+    </section>
+  </main>
+  <script>
+    let state = null;
+    let current = 'agent';
+    const labels = {agent: 'Agent File', todo: 'TODO.md', status: 'STATUS.md'};
+    async function api(path, body) {
+      const opts = body ? {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)} : {};
+      const resp = await fetch(path, opts);
+      const data = await resp.json();
+      if (!resp.ok || data.status === 'error') throw new Error(data.error || resp.statusText);
+      return data;
+    }
+    async function refresh() {
+      state = await api('/api/state');
+      document.getElementById('project').textContent = state.project;
+      document.getElementById('git').textContent = state.git.branch ? `${state.git.branch} · ${state.git.dirty_count} dirty` : '';
+      render();
+    }
+    function selectFile(kind) {
+      current = kind;
+      render();
+    }
+    function render() {
+      for (const kind of Object.keys(labels)) document.getElementById(`tab-${kind}`).classList.toggle('active', kind === current);
+      const file = state.files[current];
+      document.getElementById('title').textContent = labels[current];
+      document.getElementById('path').textContent = file.path ? ` · ${file.path}` : '';
+      document.getElementById('create').style.display = file.exists ? 'none' : '';
+      document.getElementById('save').disabled = !file.exists && current === 'agent';
+      document.getElementById('text').value = file.content || '';
+      document.getElementById('text').disabled = !file.exists && current === 'agent';
+      renderMarkdown(file.exists ? file.content : missingText(current));
+      document.getElementById('message').textContent = file.exists ? '' : 'missing';
+    }
+    function missingText(kind) {
+      if (kind === 'agent') return 'No Agents.md / AGENTS.md / CLAUDE.md file found.';
+      return `${labels[kind]} does not exist yet.`;
+    }
+    async function createFile() {
+      const data = await api('/api/create', {kind: current});
+      state.files[current] = data.file;
+      render();
+    }
+    async function saveFile() {
+      const content = document.getElementById('text').value;
+      const data = await api('/api/save', {kind: current, content});
+      state.files[current] = data.file;
+      document.getElementById('message').textContent = 'saved';
+      renderMarkdown(content);
+    }
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function inline(s) {
+      return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    }
+    function renderMarkdown(text) {
+      const lines = String(text || '').split('\n');
+      let out = '';
+      let inCode = false;
+      let inList = false;
+      for (const line of lines) {
+        if (line.startsWith('```')) {
+          if (inCode) { out += '</code></pre>'; inCode = false; } else { out += '<pre><code>'; inCode = true; }
+          continue;
+        }
+        if (inCode) { out += esc(line) + '\n'; continue; }
+        const h = line.match(/^(#{1,3})\s+(.*)$/);
+        if (h) {
+          if (inList) { out += '</ul>'; inList = false; }
+          out += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`;
+          continue;
+        }
+        const li = line.match(/^\s*-\s+(\[[ xX]\]\s+)?(.*)$/);
+        if (li) {
+          if (!inList) { out += '<ul>'; inList = true; }
+          const checked = li[1] && li[1].toLowerCase().includes('x');
+          const box = li[1] ? `<input type="checkbox" disabled ${checked ? 'checked' : ''}> ` : '';
+          out += `<li>${box}${inline(li[2])}</li>`;
+          continue;
+        }
+        if (inList) { out += '</ul>'; inList = false; }
+        out += line.trim() ? `<p>${inline(line)}</p>` : '';
+      }
+      if (inList) out += '</ul>';
+      if (inCode) out += '</code></pre>';
+      document.getElementById('preview').innerHTML = out || '<p>Empty file.</p>';
+    }
+    document.getElementById('text').addEventListener('input', (e) => renderMarkdown(e.target.value));
+    refresh().catch(err => document.getElementById('message').textContent = String(err));
+  </script>
+</body>
+</html>
+"""
+
+
+def find_rr(start: Path) -> Path | None:
+    current = start.resolve()
+    while True:
+        candidate = current / ".rr"
+        if candidate.exists():
+            return candidate
+        if current.parent == current:
+            return None
+        current = current.parent
+
+
+def load_rr(project: Path) -> dict[str, str]:
+    rr = find_rr(project)
+    if not rr:
+        return {}
+    try:
+        data = json.loads(rr.read_text())
+    except Exception:
+        return {}
+    return {k: str(v) for k, v in data.items() if isinstance(v, str)}
+
+
+def pick_port(start: int) -> int:
+    port = start
+    while port < 65535:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("127.0.0.1", port))
+            except OSError:
+                port += 1
+                continue
+            return port
+    raise RuntimeError("no free port found")
+
+
+def file_for(project: Path, kind: str) -> Path | None:
+    names = FILES.get(kind)
+    if not names:
+        return None
+    for name in names:
+        path = project / name
+        if path.exists():
+            return path
+    if kind in {"todo", "status"}:
+        return project / names[0]
+    return None
+
+
+def read_file(project: Path, kind: str) -> dict[str, Any]:
+    path = file_for(project, kind)
+    exists = bool(path and path.exists())
+    return {
+        "kind": kind,
+        "path": str(path.relative_to(project)) if path else "",
+        "exists": exists,
+        "content": path.read_text(errors="replace") if exists and path else "",
+    }
+
+
+def default_content(kind: str) -> str:
+    if kind == "todo":
+        return DEFAULT_TODO
+    if kind == "status":
+        return DEFAULT_STATUS
+    raise ValueError("only TODO.md and STATUS.md can be created")
+
+
+def git_info(project: Path) -> dict[str, Any]:
+    def run(args: list[str]) -> str:
+        proc = subprocess.run(["git", *args], cwd=project, text=True, capture_output=True, check=False)
+        return proc.stdout.strip() if proc.returncode == 0 else ""
+
+    branch = run(["branch", "--show-current"])
+    status = run(["status", "--short"])
+    return {
+        "branch": branch,
+        "dirty_count": len([line for line in status.splitlines() if line.strip()]),
+        "status": status,
+    }
+
+
+def post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=body, headers={"content-type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return json.loads(resp.read().decode())
+
+
+def register_tab(control: str, session: str, label: str, port: int) -> None:
+    host = os.environ.get("PUBLIC_HOST", "")
+    payload: dict[str, Any] = {
+        "label": label,
+        "service": "notes",
+        "port": port,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": True,
+        "activate": True,
+    }
+    if host:
+        payload["machine_host"] = host
+    url = f"{control.rstrip('/')}/sessions/{urllib.parse.quote(session, safe='')}/tabs"
+    post_json(url, payload)
+
+
+def register_local_service(project: Path, session: str, label: str, port: int) -> None:
+    registry = Path(__file__).resolve().parent / "service_registry.json"
+    row = {
+        "kind": "web",
+        "name": "notes",
+        "label": label,
+        "port": port,
+        "pid": os.getpid(),
+        "path": "/",
+        "protocol": "http",
+        "session_name": session,
+        "project": str(project),
+        "started_at": int(time.time()),
+    }
+    try:
+        rows = json.loads(registry.read_text()) if registry.exists() else []
+        if not isinstance(rows, list):
+            rows = []
+    except Exception:
+        rows = []
+    rows = [r for r in rows if not (isinstance(r, dict) and r.get("pid") == os.getpid())]
+    rows.append(row)
+    registry.write_text(json.dumps(rows, indent=2) + "\n")
+
+
+class NotesHandler(BaseHTTPRequestHandler):
+    project: Path
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        return
+
+    def _send(self, status: int, content_type: str, body: bytes) -> None:
+        self.send_response(status)
+        self.send_header("content-type", content_type)
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, status: int, data: dict[str, Any]) -> None:
+        self._send(status, "application/json", (json.dumps(data, indent=2) + "\n").encode())
+
+    def _body(self) -> dict[str, Any]:
+        length = int(self.headers.get("content-length", "0") or "0")
+        if length <= 0:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length).decode())
+        except Exception:
+            return {}
+
+    def do_GET(self) -> None:
+        if self.path == "/" or self.path.startswith("/?"):
+            self._send(200, "text/html; charset=utf-8", HTML.encode())
+            return
+        if self.path == "/api/state":
+            self._json(200, {
+                "project": str(self.project),
+                "files": {kind: read_file(self.project, kind) for kind in FILES},
+                "git": git_info(self.project),
+            })
+            return
+        self._json(404, {"status": "error", "error": "not found"})
+
+    def do_POST(self) -> None:
+        body = self._body()
+        kind = str(body.get("kind", ""))
+        try:
+            if self.path == "/api/create":
+                if kind not in {"todo", "status"}:
+                    raise RuntimeError("only TODO.md and STATUS.md can be created")
+                path = file_for(self.project, kind)
+                if path is None:
+                    raise RuntimeError("unknown file kind")
+                if not path.exists():
+                    path.write_text(default_content(kind))
+                self._json(200, {"status": "ok", "file": read_file(self.project, kind)})
+                return
+            if self.path == "/api/save":
+                if kind not in FILES:
+                    raise RuntimeError("unknown file kind")
+                path = file_for(self.project, kind)
+                if path is None:
+                    raise RuntimeError("file target not found")
+                if kind == "agent" and not path.exists():
+                    raise RuntimeError("agent file does not exist")
+                path.write_text(str(body.get("content", "")))
+                self._json(200, {"status": "ok", "file": read_file(self.project, kind)})
+                return
+        except Exception as exc:
+            self._json(500, {"status": "error", "error": str(exc)})
+            return
+        self._json(404, {"status": "error", "error": "not found"})
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Open a project notes/status tab in Remote Rider.")
+    parser.add_argument("--project", default=".", help="Project directory to manage")
+    parser.add_argument("--port", type=int, default=8126, help="Preferred local port")
+    parser.add_argument("--label", default="Notes", help="Remote Rider tab label")
+    parser.add_argument("--control", default=None, help="Control URL override")
+    parser.add_argument("--session", default=None, help="Session name override")
+    parser.add_argument("--no-register", action="store_true", help="Start UI without registering a Remote Rider tab")
+    args = parser.parse_args()
+
+    project = Path(args.project).expanduser().resolve()
+    if not project.is_dir():
+        print(f"project not found: {project}", file=sys.stderr)
+        return 1
+
+    rr = load_rr(project)
+    control = args.control or rr.get("control") or os.environ.get("RR_CONTROL", "")
+    session = args.session or rr.get("session") or os.environ.get("RR_SESSION", "")
+    port = pick_port(args.port)
+
+    NotesHandler.project = project
+    server = ThreadingHTTPServer(("0.0.0.0", port), NotesHandler)
+
+    if not args.no_register:
+        if not control or not session:
+            print("error: .rr not found or missing control/session; pass --control and --session", file=sys.stderr)
+            return 1
+        register_local_service(project, session, args.label, port)
+        register_tab(control, session, args.label, port)
+    else:
+        register_local_service(project, session or "", args.label, port)
+
+    print(f"rr-notes serving {project} on http://127.0.0.1:{port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        return 130
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
