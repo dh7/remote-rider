@@ -1,0 +1,382 @@
+#!/usr/bin/env python3
+"""
+rr-skill — Remote Rider tab UI for project-scoped dh7skills management.
+
+dh7skills stays independent. This adapter owns the HTTP UI and Remote Rider tab
+registration, and shells out to the canonical `dh7skill` CLI for all mutations.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+
+HTML = r"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skills</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #101216; color: #e7e9ee; font: 14px system-ui, sans-serif; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 12px 14px; border-bottom: 1px solid #2b3038; background: #151920; }
+    h1 { font-size: 16px; margin: 0; }
+    main { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr); gap: 14px; padding: 14px; }
+    section { min-width: 0; }
+    h2 { font-size: 13px; color: #aeb6c4; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
+    .list { display: grid; gap: 8px; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid #29303a; border-radius: 7px; background: #171b22; }
+    .name { font-weight: 650; }
+    .desc { color: #aab2bf; font-size: 12px; line-height: 1.35; margin-top: 3px; overflow-wrap: anywhere; }
+    .access { color: #e0bd72; font-size: 12px; margin-top: 5px; }
+    button { border: 1px solid #3b4656; background: #202837; color: #eef2f8; border-radius: 6px; padding: 6px 9px; cursor: pointer; }
+    button:hover { background: #283347; }
+    button.danger { border-color: #69404a; background: #3a2027; }
+    button.primary { border-color: #2f6f55; background: #1f4738; }
+    input { border: 1px solid #3b4656; background: #11151d; color: #eef2f8; border-radius: 6px; padding: 6px 9px; min-width: 190px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; }
+    .muted { color: #9ca5b3; font-size: 12px; }
+    pre { margin: 0; padding: 10px 14px; border-top: 1px solid #2b3038; background: #0c0e12; color: #aab2bf; min-height: 42px; white-space: pre-wrap; }
+    @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Skills</h1>
+      <div class="muted" id="project"></div>
+    </div>
+    <div class="toolbar">
+      <input id="passphrase" type="password" placeholder="Env/secrets passphrase" autocomplete="current-password">
+      <button onclick="syncSkills()">Sync</button>
+      <button onclick="refresh()">Refresh</button>
+    </div>
+  </header>
+  <main>
+    <section>
+      <h2>Installed</h2>
+      <div id="installed" class="list"></div>
+    </section>
+    <section>
+      <h2>Available</h2>
+      <div id="available" class="list"></div>
+    </section>
+  </main>
+  <pre id="log"></pre>
+  <script>
+    let state = null;
+    const log = (msg) => { document.getElementById('log').textContent = msg || ''; };
+    const accessText = (s) => {
+      const parts = [];
+      if (s.env_required && s.env_required.length) parts.push('env: ' + s.env_required.join(', '));
+      if (s.secrets_required && s.secrets_required.length) parts.push('secrets: ' + s.secrets_required.join(', '));
+      return parts.join(' | ');
+    };
+    const row = (skill, installed) => {
+      const el = document.createElement('div');
+      el.className = 'row';
+      const info = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = skill.name;
+      const desc = document.createElement('div');
+      desc.className = 'desc';
+      desc.textContent = skill.description || '';
+      info.appendChild(name);
+      if (skill.description) info.appendChild(desc);
+      const access = accessText(skill);
+      if (access) {
+        const a = document.createElement('div');
+        a.className = 'access';
+        a.textContent = access;
+        info.appendChild(a);
+      }
+      const btn = document.createElement('button');
+      btn.textContent = installed ? 'Remove' : 'Add';
+      btn.className = installed ? 'danger' : 'primary';
+      btn.onclick = () => installed ? removeSkill(skill.name) : addSkill(skill.name);
+      el.appendChild(info);
+      el.appendChild(btn);
+      return el;
+    };
+    async function api(path, body) {
+      const opts = body ? { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body) } : {};
+      const resp = await fetch(path, opts);
+      const data = await resp.json();
+      if (!resp.ok || data.status === 'error') throw new Error(data.error || resp.statusText);
+      return data;
+    }
+    async function refresh() {
+      try {
+        state = await api('/api/state');
+        document.getElementById('project').textContent = state.project;
+        const installedNames = new Set(state.installed.manifest.skills || []);
+        const installed = document.getElementById('installed');
+        const available = document.getElementById('available');
+        installed.innerHTML = '';
+        available.innerHTML = '';
+        for (const skill of state.skills.skills || []) {
+          (installedNames.has(skill.name) ? installed : available).appendChild(row(skill, installedNames.has(skill.name)));
+        }
+        if (!installed.children.length) installed.textContent = 'No project skills installed.';
+        log(JSON.stringify(state.installed.access_required || {}, null, 2));
+      } catch (err) {
+        log(String(err));
+      }
+    }
+    async function addSkill(name) {
+      log('Adding ' + name + '...');
+      try { log(JSON.stringify(await api('/api/add', {name, passphrase: passphraseValue()}), null, 2)); await refresh(); } catch (err) { log(String(err)); }
+    }
+    async function removeSkill(name) {
+      log('Removing ' + name + '...');
+      try { log(JSON.stringify(await api('/api/remove', {name, passphrase: passphraseValue()}), null, 2)); await refresh(); } catch (err) { log(String(err)); }
+    }
+    async function syncSkills() {
+      log('Syncing...');
+      try { log(JSON.stringify(await api('/api/sync', {passphrase: passphraseValue()}), null, 2)); await refresh(); } catch (err) { log(String(err)); }
+    }
+    function passphraseValue() {
+      return document.getElementById('passphrase').value || '';
+    }
+    refresh();
+  </script>
+</body>
+</html>
+"""
+
+
+def find_rr(start: Path) -> Path | None:
+    current = start.resolve()
+    while True:
+        candidate = current / ".rr"
+        if candidate.exists():
+            return candidate
+        if current.parent == current:
+            return None
+        current = current.parent
+
+
+def load_rr(project: Path) -> dict[str, str]:
+    rr = find_rr(project)
+    if not rr:
+        return {}
+    try:
+        data = json.loads(rr.read_text())
+    except Exception:
+        return {}
+    return {k: str(v) for k, v in data.items() if isinstance(v, str)}
+
+
+def pick_port(start: int) -> int:
+    port = start
+    while port < 65535:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("127.0.0.1", port))
+            except OSError:
+                port += 1
+                continue
+            return port
+    raise RuntimeError("no free port found")
+
+
+def find_dh7skill() -> str:
+    direct = shutil.which("dh7skill")
+    if direct:
+        return direct
+    home = os.environ.get("DH7SKILLS_HOME")
+    if home and (Path(home) / "bin" / "dh7skill").exists():
+        return str(Path(home) / "bin" / "dh7skill")
+    fallback = Path.home() / "code" / "dh7skills" / "bin" / "dh7skill"
+    if fallback.exists():
+        return str(fallback)
+    raise RuntimeError("dh7skill not found. Run ~/code/dh7skills/install.sh --shell-integration")
+
+
+def run_json(cmd: list[str], passphrase: str = "") -> dict[str, Any]:
+    env = os.environ.copy()
+    if passphrase:
+        env["ENV_ENC_PASS"] = passphrase
+    proc = subprocess.run(cmd, text=True, capture_output=True, check=False, env=env)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or f"command failed: {' '.join(cmd)}")
+    try:
+        return json.loads(proc.stdout)
+    except Exception as exc:
+        raise RuntimeError(f"invalid JSON from {' '.join(cmd)}: {proc.stdout[:500]}") from exc
+
+
+class SkillHandler(BaseHTTPRequestHandler):
+    project: Path
+    dh7skill: str
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        return
+
+    def _send(self, status: int, content_type: str, body: bytes) -> None:
+        self.send_response(status)
+        self.send_header("content-type", content_type)
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, status: int, data: dict[str, Any]) -> None:
+        self._send(status, "application/json", (json.dumps(data, indent=2) + "\n").encode())
+
+    def _body(self) -> dict[str, Any]:
+        length = int(self.headers.get("content-length", "0") or "0")
+        if length <= 0:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length).decode())
+        except Exception:
+            return {}
+
+    def do_GET(self) -> None:
+        if self.path == "/" or self.path.startswith("/?"):
+            self._send(200, "text/html; charset=utf-8", HTML.encode())
+            return
+        if self.path == "/api/state":
+            try:
+                self._json(200, {
+                    "project": str(self.project),
+                    "skills": run_json([self.dh7skill, "list", "--json"]),
+                    "installed": run_json([self.dh7skill, "installed", "--project", str(self.project), "--json"]),
+                    "env": run_json([self.dh7skill, "check-env", "--project", str(self.project), "--json"]),
+                })
+            except Exception as exc:
+                self._json(500, {"status": "error", "error": str(exc)})
+            return
+        self._json(404, {"status": "error", "error": "not found"})
+
+    def do_POST(self) -> None:
+        body = self._body()
+        name = str(body.get("name", "")).strip()
+        passphrase = str(body.get("passphrase", ""))
+        try:
+            if self.path == "/api/add":
+                if not name:
+                    raise RuntimeError("name is required")
+                self._json(200, run_json([self.dh7skill, "add", name, "--project", str(self.project), "--json"], passphrase))
+                return
+            if self.path == "/api/remove":
+                if not name:
+                    raise RuntimeError("name is required")
+                self._json(200, run_json([self.dh7skill, "remove", name, "--project", str(self.project), "--json"], passphrase))
+                return
+            if self.path == "/api/sync":
+                self._json(200, run_json([self.dh7skill, "sync", "--project", str(self.project), "--json"], passphrase))
+                return
+        except Exception as exc:
+            self._json(500, {"status": "error", "error": str(exc)})
+            return
+        self._json(404, {"status": "error", "error": "not found"})
+
+
+def post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=body, headers={"content-type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return json.loads(resp.read().decode())
+
+
+def register_tab(control: str, session: str, label: str, port: int) -> None:
+    host = os.environ.get("PUBLIC_HOST", "")
+    payload: dict[str, Any] = {
+        "label": label,
+        "service": "skills",
+        "port": port,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": True,
+        "activate": True,
+    }
+    if host:
+        payload["machine_host"] = host
+    url = f"{control.rstrip('/')}/sessions/{urllib.parse.quote(session, safe='')}/tabs"
+    post_json(url, payload)
+
+
+def register_local_service(project: Path, session: str, label: str, port: int) -> None:
+    registry = Path(__file__).resolve().parent / "service_registry.json"
+    row = {
+        "kind": "web",
+        "name": "skills",
+        "label": label,
+        "port": port,
+        "pid": os.getpid(),
+        "path": "/",
+        "protocol": "http",
+        "session_name": session,
+        "project": str(project),
+        "started_at": int(time.time()),
+    }
+    try:
+        rows = json.loads(registry.read_text()) if registry.exists() else []
+        if not isinstance(rows, list):
+            rows = []
+    except Exception:
+        rows = []
+    rows = [r for r in rows if not (isinstance(r, dict) and r.get("pid") == os.getpid())]
+    rows.append(row)
+    registry.write_text(json.dumps(rows, indent=2) + "\n")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Open a dh7skills manager tab in Remote Rider.")
+    parser.add_argument("--project", default=".", help="Project directory to manage")
+    parser.add_argument("--port", type=int, default=8127, help="Preferred local port")
+    parser.add_argument("--label", default="Skills", help="Remote Rider tab label")
+    parser.add_argument("--control", default=None, help="Control URL override")
+    parser.add_argument("--session", default=None, help="Session name override")
+    parser.add_argument("--no-register", action="store_true", help="Start UI without registering a Remote Rider tab")
+    args = parser.parse_args()
+
+    project = Path(args.project).expanduser().resolve()
+    if not project.is_dir():
+        print(f"project not found: {project}", file=sys.stderr)
+        return 1
+
+    rr = load_rr(project)
+    control = args.control or rr.get("control") or os.environ.get("RR_CONTROL", "")
+    session = args.session or rr.get("session") or os.environ.get("RR_SESSION", "")
+    port = pick_port(args.port)
+    dh7skill = find_dh7skill()
+
+    SkillHandler.project = project
+    SkillHandler.dh7skill = dh7skill
+    server = ThreadingHTTPServer(("0.0.0.0", port), SkillHandler)
+
+    if not args.no_register:
+        if not control or not session:
+            print("error: .rr not found or missing control/session; pass --control and --session", file=sys.stderr)
+            return 1
+        register_local_service(project, session, args.label, port)
+        register_tab(control, session, args.label, port)
+    else:
+        register_local_service(project, session or "", args.label, port)
+
+    print(f"rr-skill serving {project} on http://127.0.0.1:{port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        return 130
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

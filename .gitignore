@@ -2,3 +2,14 @@
 .env
 .env.local
 .env.plain
+.rr
+.venv/
+__pycache__/
+*.pyc
+logs/
+service_registry.json
+.agents/
+.claude/
+.codex/
+.cursor/
+.opencode/

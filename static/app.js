@@ -310,6 +310,7 @@ function normalizeTab(raw) {
     port: port > 0 ? port : undefined,
     path: raw.path ? String(raw.path) : undefined,
     protocol: raw.protocol ? String(raw.protocol) : undefined,
+    ephemeral: raw.ephemeral === true ? true : undefined,
   };
 }
 
@@ -1297,6 +1298,42 @@ function moveServerTo(dragName, targetName, after) {
   saveProfiles();
 }
 
+async function closeTab(server, tab, endpoint) {
+  const host = endpoint?.host || sessionMachineHost(server) || server.ip || '127.0.0.1';
+  const port = endpoint?.port || tab.port;
+
+  if (port) {
+    try {
+      await fetch('/services/stop/proxy', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ host, hub_port: 7000, port }),
+      });
+    } catch (_) {}
+  }
+
+  try {
+    await fetch(`/sessions/${encodeURIComponent(server.name)}/tabs`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: tab.label }),
+    });
+  } catch (_) {}
+
+  const session = state.sessions.find((s) => s.name === server.name);
+  if (session) {
+    session.tabs = (session.tabs || []).filter((t) => t.id !== tab.id && t.label !== tab.label);
+    session.panels = session.tabs;
+    state.controlSessionsSignature = JSON.stringify(state.sessions);
+    try { localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions)); } catch (_) {}
+  }
+
+  const updatedServer = state.sessions.find((s) => s.name === server.name);
+  if (updatedServer && state.activeSession === server.name) {
+    await renderTabs(updatedServer, false);
+  }
+}
+
 function renderSidebar() {
   const list = document.getElementById('session-list');
   list.innerHTML = '';
@@ -1423,6 +1460,18 @@ async function renderTabs(server, refreshLive = true) {
     text.textContent = panel.label;
     btn.appendChild(dot);
     btn.appendChild(text);
+    const isTerminal = (panel.service === 'terminal' || panel.label.toLowerCase() === 'terminal');
+    if (!isTerminal) {
+      const closeBtn = document.createElement('span');
+      closeBtn.className = 'tab-close-btn';
+      closeBtn.textContent = '×';
+      closeBtn.title = `Close ${panel.label} and kill service`;
+      closeBtn.onclick = async (e) => {
+        e.stopPropagation();
+        await closeTab(server, panel, endpoint);
+      };
+      btn.appendChild(closeBtn);
+    }
     btn.onclick = () => {
       document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');

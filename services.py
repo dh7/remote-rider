@@ -12,6 +12,73 @@ from host_utils import _is_local_host, _normalize_host, _pick_free_port, _servic
 from storage import _load_service_registry, _save_service_registry
 
 
+def _kill_service_by_port(port: int) -> dict[str, Any]:
+    import psutil
+    killed_pid: int | None = None
+
+    with SERVICE_LOCK:
+        rows = _cleanup_service_registry(_load_service_registry())
+        target = next((r for r in rows if int(r.get("port", 0)) == port), None)
+        if target:
+            rows = [r for r in rows if int(r.get("port", 0)) != port]
+            _save_service_registry(rows)
+            if isinstance(target.get("pid"), int):
+                killed_pid = target["pid"]
+
+    if killed_pid is not None:
+        try:
+            proc = psutil.Process(killed_pid)
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except psutil.TimeoutExpired:
+                proc.kill()
+            return {"status": "killed", "port": port, "pid": killed_pid, "source": "registry"}
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            if (conn.laddr and conn.laddr.port == port
+                    and conn.status == "LISTEN" and conn.pid):
+                try:
+                    proc = psutil.Process(conn.pid)
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=2)
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                    return {"status": "killed", "port": port, "pid": conn.pid, "source": "port_scan"}
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+    except (psutil.AccessDenied, PermissionError):
+        pass
+
+    if killed_pid is not None:
+        return {"status": "removed_from_registry", "port": port}
+    return {"status": "not_found", "port": port}
+
+
+def _kill_remote_service(host: str, hub_port: int, port: int) -> dict[str, Any]:
+    cleaned_host = _normalize_host(host)
+    if _is_local_host(cleaned_host):
+        return _kill_service_by_port(port)
+
+    url = f"http://{cleaned_host}:{hub_port}/services/stop"
+    body = json.dumps({"port": port}).encode("utf-8")
+    req = UrlRequest(url, data=body, headers={"content-type": "application/json"}, method="POST")
+    try:
+        with urlopen(req, timeout=4) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response")
+            payload.setdefault("source", "proxy")
+            payload.setdefault("host", cleaned_host)
+            return payload
+    except Exception as exc:
+        return {"status": "error", "port": port, "host": cleaned_host, "reason": str(exc)}
+
+
 def _cleanup_service_registry(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     from host_utils import _pid_alive
     from sandbox import _container_running
@@ -74,6 +141,18 @@ def _local_services_snapshot() -> dict[str, Any]:
                 entry["launchable"] = True
                 entry["embeddable"] = True
                 services.append(entry)
+            else:
+                name = str(row.get("name", f"service-{port}"))
+                entry = _service_entry(name, port, enabled=True)
+                entry["label"] = str(row.get("label", name))
+                entry["path"] = str(row.get("path", "/"))
+                entry["protocol"] = str(row.get("protocol", "http"))
+                entry["kind"] = kind or "service"
+                entry["launchable"] = True
+                entry["embeddable"] = row.get("embeddable") is not False
+                if row.get("session_name"):
+                    entry["session_name"] = str(row.get("session_name"))
+                services.append(entry)
 
     return {
         "host": socket.gethostname(),
@@ -82,7 +161,7 @@ def _local_services_snapshot() -> dict[str, Any]:
     }
 
 
-def _start_files_service_local(preferred_port: int | None) -> dict[str, Any]:
+def _start_files_service_local(preferred_port: int | None, root_path: str | None = None, session_name: str | None = None) -> dict[str, Any]:
     venv_uvicorn = HERE / ".venv" / "bin" / "uvicorn"
     if not venv_uvicorn.exists():
         return {
@@ -99,6 +178,10 @@ def _start_files_service_local(preferred_port: int | None) -> dict[str, Any]:
     log_path = log_dir / f"fileserver-{port}.log"
     log_handle = log_path.open("a")
 
+    env = os.environ.copy()
+    if root_path:
+        env["RR_FILES_ROOT"] = root_path
+
     proc = subprocess.Popen(
         [
             str(venv_uvicorn),
@@ -109,19 +192,24 @@ def _start_files_service_local(preferred_port: int | None) -> dict[str, Any]:
             str(port),
         ],
         cwd=str(HERE),
+        env=env,
         stdout=log_handle,
         stderr=subprocess.STDOUT,
         close_fds=True,
     )
     log_handle.close()
 
-    row = {
+    row: dict[str, Any] = {
         "kind": "fileserver",
         "name": f"files-{port}",
         "port": port,
         "pid": proc.pid,
         "started_at": int(time.time()),
     }
+    if root_path:
+        row["root_path"] = root_path
+    if session_name:
+        row["session_name"] = session_name
 
     with SERVICE_LOCK:
         rows = _cleanup_service_registry(_load_service_registry())
@@ -160,13 +248,18 @@ def _fetch_remote_services(host: str, port: int) -> dict[str, Any]:
         }
 
 
-def _start_remote_files_service(host: str, hub_port: int, preferred_port: int | None) -> dict[str, Any]:
+def _start_remote_files_service(host: str, hub_port: int, preferred_port: int | None, root_path: str | None = None, session_name: str | None = None) -> dict[str, Any]:
     cleaned_host = _normalize_host(host)
     if _is_local_host(cleaned_host):
-        return _start_files_service_local(preferred_port)
+        return _start_files_service_local(preferred_port, root_path=root_path, session_name=session_name)
 
     url = f"http://{cleaned_host}:{hub_port}/services/files/start"
-    body = json.dumps({"port": preferred_port}).encode("utf-8")
+    body_dict: dict[str, Any] = {"port": preferred_port}
+    if root_path:
+        body_dict["root_path"] = root_path
+    if session_name:
+        body_dict["session_name"] = session_name
+    body = json.dumps(body_dict).encode("utf-8")
     req = UrlRequest(url, data=body, headers={"content-type": "application/json"}, method="POST")
     try:
         with urlopen(req, timeout=4) as resp:

@@ -93,6 +93,8 @@ def _normalize_session_tab(payload: dict[str, Any]) -> dict[str, Any] | None:
     protocol = str(payload.get("protocol", "")).strip().lower()
     if protocol:
         tab["protocol"] = _normalize_protocol(protocol)
+    if payload.get("ephemeral") is True:
+        tab["ephemeral"] = True
     return tab
 
 

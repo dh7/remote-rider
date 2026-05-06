@@ -8,7 +8,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 app = FastAPI()
-ROOT = Path.home().resolve()
+import os as _os
+ROOT = Path(_os.environ["RR_FILES_ROOT"]).expanduser().resolve() if _os.environ.get("RR_FILES_ROOT") else Path.home().resolve()
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30
 
 STYLE = """

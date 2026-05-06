@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""
+rr-init — register a Remote Rider session for this directory and write a .rr config file.
+
+Usage:
+  rr-init --control URL                       Register using this control URL
+  rr-init --control URL --session NAME        Use a specific session name
+  rr-init --host IP                           Override the machine IP reported to control
+  rr-init --tmux-session NAME                 tmux session name for the Terminal tab (default: 1)
+  rr-init --force                             Overwrite existing .rr file
+
+The session name defaults to the current directory name.
+Tabs are populated from the local hub's running services automatically.
+Writes .rr with {"control": "...", "session": "..."}.
+"""
+import argparse
+import json
+import os
+import sys
+import urllib.request
+from pathlib import Path
+from urllib.parse import quote
+
+
+def _get(url: str) -> dict:
+    req = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        return json.loads(resp.read())
+
+
+def _put(url: str, payload: dict) -> dict:
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, headers={"content-type": "application/json"}, method="PUT")
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        return json.loads(resp.read())
+
+
+_SERVICE_DEFAULTS = {
+    "terminal": {"label": "Terminal", "path": "/", "protocol": "http"},
+    "monitor":  {"label": "Monitor",  "path": "/", "protocol": "http"},
+    "logs":     {"label": "Logs",     "path": "/", "protocol": "http"},
+    "files":    {"label": "Files",    "path": "/files", "protocol": "http"},
+}
+
+
+def _tabs_from_services(hub_url: str, tmux_session: str) -> list:
+    try:
+        data = _get(f"{hub_url}/services")
+        services = data.get("services", [])
+    except Exception as exc:
+        print(f"  warning: could not fetch services from hub: {exc}", file=sys.stderr)
+        return []
+
+    tabs = []
+    for svc in services:
+        name = str(svc.get("name", ""))
+        port = svc.get("port")
+        if not name or not port or name == "hub":
+            continue
+        if not svc.get("enabled", True):
+            continue
+        defaults = _SERVICE_DEFAULTS.get(name, {})
+        label = defaults.get("label") or svc.get("label") or name.capitalize()
+        path = defaults.get("path") or svc.get("path") or "/"
+        protocol = defaults.get("protocol") or svc.get("protocol") or "http"
+        tab: dict = {"label": label, "service": name, "port": port, "path": path, "protocol": protocol}
+        if name == "terminal" and tmux_session and tmux_session != "1":
+            tab["path"] = f"/?arg={quote(tmux_session, safe='')}"
+        tabs.append(tab)
+
+    return tabs
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Initialize a Remote Rider session for this directory.")
+    parser.add_argument("--control", default=None, help="Control URL (e.g. http://100.119.43.10:7000)")
+    parser.add_argument("--session", default=None, help="Session name (default: current directory name)")
+    parser.add_argument("--machine", default=None, help="Machine name")
+    parser.add_argument("--host", default=None, help="Machine IP/hostname")
+    parser.add_argument("--tmux-session", default="1", dest="tmux_session", help="tmux session for Terminal tab (default: 1)")
+    parser.add_argument("--hub", default=None, help="Hub URL for service discovery (default: http://localhost:7000)")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing .rr file")
+    args = parser.parse_args()
+
+    rr_path = Path(".rr")
+    existing_rr: dict = {}
+    if rr_path.exists():
+        try:
+            existing_rr = json.loads(rr_path.read_text())
+        except Exception:
+            pass
+
+    control_url = (args.control or existing_rr.get("control") or os.environ.get("RR_CONTROL", "")).rstrip("/")
+    session_name = args.session or existing_rr.get("session") or Path.cwd().name
+    hub_url = (args.hub or os.environ.get("RR_HUB", "http://localhost:7000")).rstrip("/")
+
+    if not control_url:
+        print("error: --control URL is required", file=sys.stderr)
+        print("example: rr-init --control http://100.119.43.10:7000", file=sys.stderr)
+        sys.exit(1)
+
+    machine_name = args.machine or session_name
+    machine_host = args.host or os.environ.get("PUBLIC_HOST", "127.0.0.1")
+
+    # Check if session already exists
+    session_exists = False
+    try:
+        _get(f"{control_url}/sessions/{session_name}")
+        session_exists = True
+        print(f"Session '{session_name}' already exists.")
+    except urllib.request.HTTPError as exc:
+        if exc.code != 404:
+            print(f"error: unexpected response from control: {exc}", file=sys.stderr)
+            sys.exit(1)
+    except Exception as exc:
+        print(f"error: could not reach control at {control_url}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if not session_exists:
+        print(f"Fetching services from hub at {hub_url}…")
+        tabs = _tabs_from_services(hub_url, args.tmux_session)
+        if tabs:
+            labels = ", ".join(t["label"] for t in tabs)
+            print(f"  tabs: {labels}")
+        else:
+            print("  no services found — session will have no tabs (add them via setup modal)")
+
+        print(f"Creating session '{session_name}'…")
+        try:
+            payload = _get(f"{control_url}/sessions")
+            sessions = payload.get("sessions", [])
+        except Exception as exc:
+            print(f"error: could not fetch sessions: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        sessions.append({
+            "name": session_name,
+            "machine": {"name": machine_name, "host": machine_host},
+            "tabs": tabs,
+        })
+        try:
+            _put(f"{control_url}/sessions", {"sessions": sessions})
+            print(f"Session '{session_name}' created.")
+        except Exception as exc:
+            print(f"error: could not create session: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    # Write .rr
+    rr_content = {"control": control_url, "session": session_name}
+    if rr_path.exists() and not args.force:
+        current = existing_rr
+        if current.get("control") == control_url and current.get("session") == session_name:
+            print(".rr already up to date.")
+            sys.exit(0)
+        print("warning: .rr already exists with different values — use --force to overwrite", file=sys.stderr)
+        sys.exit(1)
+
+    rr_path.write_text(json.dumps(rr_content, indent=2) + "\n")
+    print(f"Wrote .rr  →  control={control_url}  session={session_name}")
+
+
+if __name__ == "__main__":
+    main()

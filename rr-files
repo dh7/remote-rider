@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""
+rr-files — start a file browser for a directory and register it as a tab in the control plane.
+
+Usage:
+  rr-files [PATH]              Browse PATH (default: current directory)
+  rr-files --label LABEL       Custom tab label (default: "Files: <path>")
+  rr-files --hub URL           Hub URL (default: http://localhost:7000)
+  rr-files --control URL       Control URL (overrides .rr)
+  rr-files --session NAME      Session name (overrides .rr)
+
+Reads the nearest .rr file (walks up from PATH) for control URL and session name.
+"""
+import argparse
+import json
+import os
+import sys
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+
+def _find_rr(start: Path):
+    current = start.resolve()
+    while True:
+        candidate = current / ".rr"
+        if candidate.exists():
+            return candidate
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
+def _post(url: str, payload: dict) -> dict:
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, headers={"content-type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        return json.loads(resp.read())
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Start a file browser tab in Remote Rider.")
+    parser.add_argument("path", nargs="?", default=".", help="Directory to browse (default: current)")
+    parser.add_argument("--label", default=None)
+    parser.add_argument("--hub", default=None)
+    parser.add_argument("--control", default=None)
+    parser.add_argument("--session", default=None)
+    args = parser.parse_args()
+
+    path = Path(args.path).resolve()
+    if not path.is_dir():
+        print(f"error: {path} is not a directory", file=sys.stderr)
+        sys.exit(1)
+
+    rr: dict = {}
+    rr_path = _find_rr(path) or _find_rr(Path.cwd())
+    if rr_path:
+        try:
+            rr = json.loads(rr_path.read_text())
+        except Exception:
+            pass
+
+    control_url = args.control or rr.get("control") or os.environ.get("RR_CONTROL", "")
+    session_name = args.session or rr.get("session") or os.environ.get("RR_SESSION", "")
+    hub_url = (args.hub or os.environ.get("RR_HUB", "http://localhost:7000")).rstrip("/")
+
+    if not control_url:
+        print("error: control URL not found — create a .rr file or pass --control", file=sys.stderr)
+        sys.exit(1)
+    if not session_name:
+        print("error: session name not found — create a .rr file or pass --session", file=sys.stderr)
+        sys.exit(1)
+
+    label = args.label or f"Files: {path}"
+    control_url = control_url.rstrip("/")
+
+    print(f"Starting file browser for {path}…")
+    try:
+        result = _post(f"{hub_url}/services/files/start", {
+            "root_path": str(path),
+            "session_name": session_name,
+        })
+    except Exception as exc:
+        print(f"error: could not reach hub at {hub_url}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if result.get("status") != "ok":
+        print(f"error: hub failed to start fileserver: {result.get('reason', result)}", file=sys.stderr)
+        sys.exit(1)
+
+    port = result["service"]["port"]
+    machine_host = result.get("bind_host") or os.environ.get("PUBLIC_HOST") or ""
+
+    print(f"Registering tab '{label}' in session '{session_name}'…")
+    try:
+        tab_result = _post(
+            f"{control_url}/sessions/{urllib.parse.quote(session_name, safe='')}/tabs",
+            {
+                "label": label,
+                "port": port,
+                "path": "/files",
+                "protocol": "http",
+                "ephemeral": True,
+                **({"machine_host": machine_host} if machine_host else {}),
+            },
+        )
+        print(f"Tab '{label}' {tab_result.get('action', 'registered')} in session '{session_name}'.")
+    except Exception as exc:
+        print(f"warning: could not register tab at control: {exc}", file=sys.stderr)
+
+    print(f"File browser running on port {port}.")
+
+
+if __name__ == "__main__":
+    main()

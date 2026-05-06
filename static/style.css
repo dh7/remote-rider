@@ -619,3 +619,20 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
 .update-status-badge.synced { background: #173323; border-color: #2f7a4f; color: #bce8ca; }
 .update-status-badge.behind { background: #402126; border-color: #8d3945; color: #ffc0c7; }
 .update-status-badge.checking { background: #1a1f3e; border-color: #4c5a86; color: #b0badf; }
+
+.tab-close-btn {
+  margin-left: 0.25rem;
+  opacity: 0.35;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+  border-radius: 0.2rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.1s, background 0.1s;
+}
+.tab-btn:hover .tab-close-btn,
+.tab-btn.active .tab-close-btn { opacity: 0.6; }
+.tab-close-btn:hover { opacity: 1 !important; background: rgba(220, 50, 50, 0.3); color: #ff8888; }

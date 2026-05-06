@@ -40,6 +40,8 @@ from models import (
     SandboxCreateRequest,
     SandboxStopProxyRequest,
     SandboxStopRequest,
+    ServiceStopProxyRequest,
+    ServiceStopRequest,
     SessionsPutRequest,
     SessionTabDeleteRequest,
     SessionTabUpsertRequest,
@@ -51,6 +53,8 @@ from models import (
 )
 from services import (
     _fetch_remote_services,
+    _kill_remote_service,
+    _kill_service_by_port,
     _local_services_snapshot,
     _start_files_service_local,
     _start_remote_files_service,
@@ -191,6 +195,8 @@ Runtime:
 - remote services: GET {base}/services/proxy?host=<ip>&port=7000
 - start files service: POST {base}/services/files/start
 - start remote files service: POST {base}/services/files/start/proxy
+- stop local service: POST {base}/services/stop
+- stop remote service: POST {base}/services/stop/proxy
 - tmux sessions: GET {base}/tmux/sessions
 - tmux sessions by host: GET {base}/tmux/sessions/proxy?host=<ip>&port=7000
 - local agents: GET {base}/agents/runtime
@@ -489,6 +495,7 @@ def upsert_session_tab(session_name: str, payload: SessionTabUpsertRequest) -> d
             "port": payload.port,
             "path": payload.path,
             "protocol": payload.protocol,
+            "ephemeral": payload.ephemeral,
         }
     )
     if normalized_tab is None:
@@ -604,12 +611,23 @@ def services_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=6553
 @app.post("/services/files/start")
 def start_files_service(payload: StartFilesServiceRequest) -> dict[str, Any]:
     _require_runtime_api()
-    return _start_files_service_local(payload.port)
+    return _start_files_service_local(payload.port, root_path=payload.root_path, session_name=payload.session_name)
 
 
 @app.post("/services/files/start/proxy")
 def start_files_service_proxy(payload: StartFilesServiceProxyRequest) -> dict[str, Any]:
-    return _start_remote_files_service(payload.host, payload.hub_port, payload.port)
+    return _start_remote_files_service(payload.host, payload.hub_port, payload.port, root_path=payload.root_path, session_name=payload.session_name)
+
+
+@app.post("/services/stop")
+def stop_service(payload: ServiceStopRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return _kill_service_by_port(payload.port)
+
+
+@app.post("/services/stop/proxy")
+def stop_service_proxy(payload: ServiceStopProxyRequest) -> dict[str, Any]:
+    return _kill_remote_service(payload.host, payload.hub_port, payload.port)
 
 
 @app.get("/tmux/sessions")

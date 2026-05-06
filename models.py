@@ -34,12 +34,16 @@ class TmuxKillRequest(BaseModel):
 
 class StartFilesServiceRequest(BaseModel):
     port: int | None = Field(default=None, ge=1, le=65535)
+    root_path: str | None = None
+    session_name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class StartFilesServiceProxyRequest(BaseModel):
     host: str
     hub_port: int = Field(default=7000, ge=1, le=65535)
     port: int | None = Field(default=None, ge=1, le=65535)
+    root_path: str | None = None
+    session_name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class SessionsPutRequest(BaseModel):
@@ -56,6 +60,7 @@ class SessionTabUpsertRequest(BaseModel):
     machine_name: str | None = Field(default=None, min_length=1, max_length=120)
     machine_host: str | None = Field(default=None, min_length=1, max_length=255)
     activate: bool = False
+    ephemeral: bool = False
 
 
 class SessionTabDeleteRequest(BaseModel):
@@ -145,3 +150,13 @@ class SandboxBranchRequest(BaseModel):
 class SandboxBranchProxyRequest(SandboxBranchRequest):
     host: str
     hub_port: int = Field(default=7000, ge=1, le=65535)
+
+
+class ServiceStopRequest(BaseModel):
+    port: int = Field(ge=1, le=65535)
+
+
+class ServiceStopProxyRequest(BaseModel):
+    host: str
+    hub_port: int = Field(default=7000, ge=1, le=65535)
+    port: int = Field(ge=1, le=65535)

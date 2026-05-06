@@ -1,16 +1,165 @@
 [
   {
-    "name": "netochka",
+    "name": "netochka-slashagent-slashagent",
     "machine": {
       "name": "netochka",
       "host": "100.119.43.10"
     },
     "tabs": [
       {
-        "id": "tab-ujc67aqq",
+        "id": "tab-7r6llfy5",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=slashagent"
+      },
+      {
+        "id": "tab-53ftmrm3",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001
+      },
+      {
+        "id": "tab-c4s9ccwp",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002
+      },
+      {
+        "id": "tab-ijwzg4qz",
+        "label": "Files",
+        "service": "files",
+        "port": 8080,
+        "path": "/files"
+      }
+    ],
+    "display": "Gerald",
+    "color": "#ffffff"
+  },
+  {
+    "name": "hermes-hermes-1",
+    "machine": {
+      "name": "pi",
+      "host": "100.69.53.14"
+    },
+    "tabs": [
+      {
+        "id": "tab-2alcj6ym",
         "label": "Terminal",
         "service": "terminal",
         "port": 7681
+      },
+      {
+        "id": "tab-n485pdy1",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001
+      },
+      {
+        "id": "tab-60j816zf",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002
+      },
+      {
+        "id": "tab-kvi4wh49",
+        "label": "Files",
+        "service": "files",
+        "port": 8080,
+        "path": "/files"
+      }
+    ],
+    "display": "Pi",
+    "color": "#8c00ff"
+  },
+  {
+    "name": "netochka-imgbench.ai-job2",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-vuw1xq62",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=job2"
+      },
+      {
+        "id": "tab-96dj3ysb",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001
+      },
+      {
+        "id": "tab-f4026zqt",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002
+      },
+      {
+        "id": "tab-nualajip",
+        "label": "Files",
+        "service": "files",
+        "port": 8080,
+        "path": "/files"
+      }
+    ],
+    "display": "imgbench.ai",
+    "color": "#00d5ff"
+  },
+  {
+    "name": "netochka-image-bench-job1",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-ivj91ek3",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=job1"
+      },
+      {
+        "id": "tab-0ftczoe7",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001
+      },
+      {
+        "id": "tab-0pjhu7kg",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002
+      },
+      {
+        "id": "tab-efsxxvy0",
+        "label": "Files",
+        "service": "files",
+        "port": 8080,
+        "path": "/files"
+      }
+    ],
+    "display": "image-bench",
+    "color": "#00f03c"
+  },
+  {
+    "name": "remote-rider-ui-polish",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-terminal",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=remote-rider-ui-polish",
+        "protocol": "http"
       },
       {
         "id": "tab-ba6b8zde",
@@ -32,6 +181,79 @@
         "path": "/files"
       }
     ],
-    "display": "netochka"
+    "display": "Remote Rider UI Polish",
+    "color": "#1100ff"
+  },
+  {
+    "name": "gx10-gx10-1",
+    "machine": {
+      "name": "gx10",
+      "host": "100.118.187.64"
+    },
+    "tabs": [
+      {
+        "id": "tab-sogng3ao",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681
+      },
+      {
+        "id": "tab-9ats4kgr",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001
+      },
+      {
+        "id": "tab-weykho7n",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8003
+      },
+      {
+        "id": "tab-566ygrxr",
+        "label": "Files",
+        "service": "files",
+        "port": 8080,
+        "path": "/files"
+      }
+    ],
+    "display": "gx10",
+    "color": "#ff0000"
+  },
+  {
+    "name": "netochka-dh7skills-skills",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-ecugfrz8",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=skills"
+      },
+      {
+        "id": "tab-xls8lu8a",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001
+      },
+      {
+        "id": "tab-7d9bejdi",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002
+      },
+      {
+        "id": "tab-lkt1heos",
+        "label": "Files",
+        "service": "files",
+        "port": 8080,
+        "path": "/files"
+      }
+    ],
+    "display": "dh7skills"
   }
 ]
