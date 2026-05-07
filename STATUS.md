@@ -21,6 +21,7 @@ Understand and simplify the Add Workspace flow.
 - Connected sandbox creation to Add Workspace and updated sandbox copy.
 - Reviewed the current Add Workspace implementation to document why it is confusing.
 - Reworked Add Workspace so existing workspaces are no longer listed as targets. The form now starts with Workspace Type, then a machine-only selector for normal workspaces.
+- Grouped Add Workspace into clearer sections: Type, Machine, Tabs, and Terminal.
 
 ## Current State
 
@@ -32,10 +33,10 @@ Understand and simplify the Add Workspace flow.
 - Add Workspace no longer treats an existing workspace as a target. Existing workspaces are used only by Panel Source when copying tabs.
 - The normal workspace path is now: Workspace Type = Normal, Machine, Panel Source, Workspace Label, Terminal tmux Session.
 - The sandbox path is now: Workspace Type = Sandbox, then Configure Sandbox opens the sandbox modal.
+- Add Workspace is still a single modal, but it is no longer one undifferentiated form.
 
 ## Next Steps
 
-- Improve Add Workspace further by making the sections visually clearer or turning them into a stepper.
 - Decide whether Sandbox Workspace should fully live inside Add Workspace or keep using the existing sandbox modal.
 - Decide whether `/workspaces` API aliases are worth adding now or later.
 

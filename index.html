@@ -25,70 +25,82 @@
     <div id="add-card">
       <h2>Add Workspace</h2>
 
-      <div class="form-row">
-        <label for="add-workspace-type">Workspace Type</label>
-        <select id="add-workspace-type">
-          <option value="normal">Normal workspace</option>
-          <option value="sandbox">Sandbox workspace</option>
-        </select>
-      </div>
-
-      <div class="form-row normal-workspace-field">
-        <label for="add-server-select">Machine</label>
-        <select id="add-server-select"></select>
-      </div>
-
-      <div id="add-new-server-wrap" class="inline-row hidden normal-workspace-field">
+      <div class="section-card">
+        <div class="section-head"><h3>Type</h3></div>
         <div class="form-row">
-          <label for="add-server-ip">Machine IP/Host</label>
-          <input id="add-server-ip" type="text" placeholder="100.x.x.x or hostname">
+          <label for="add-workspace-type">Workspace Type</label>
+          <select id="add-workspace-type">
+            <option value="normal">Normal workspace</option>
+            <option value="sandbox">Sandbox workspace</option>
+          </select>
         </div>
       </div>
 
-      <div id="add-template-wrap" class="form-row normal-workspace-field">
-        <label for="add-template-select">Panel Template</label>
-        <select id="add-template-select"></select>
-      </div>
+      <div class="section-card normal-workspace-field">
+        <div class="section-head"><h3>Machine</h3></div>
+        <div class="form-row">
+          <label for="add-server-select">Machine</label>
+          <select id="add-server-select"></select>
+        </div>
 
-      <div class="form-row normal-workspace-field">
-        <label for="add-panel-source">Panel Source</label>
-        <select id="add-panel-source"></select>
-      </div>
+        <div id="add-new-server-wrap" class="inline-row hidden">
+          <div class="form-row">
+            <label for="add-server-ip">Machine IP/Host</label>
+            <input id="add-server-ip" type="text" placeholder="100.x.x.x or hostname">
+          </div>
+        </div>
 
-      <div id="add-source-profile-wrap" class="form-row normal-workspace-field">
-        <label for="add-source-profile">Copy Tabs From Workspace</label>
-        <select id="add-source-profile"></select>
-      </div>
-
-      <div id="add-known-server-wrap" class="form-row hidden normal-workspace-field">
-        <label for="add-known-server">Homelab server (Tailscale)</label>
-        <select id="add-known-server"></select>
-      </div>
-
-      <div class="form-row normal-workspace-field">
-        <label for="add-label">Workspace Label</label>
-        <input id="add-label" type="text" placeholder="netochka">
-      </div>
-
-      <div class="form-row normal-workspace-field">
-        <label>Terminal tmux Session</label>
-        <div class="radio-row">
-          <label><input type="radio" name="tmux-source" value="existing" checked> Existing</label>
-          <label><input type="radio" name="tmux-source" value="new"> New</label>
+        <div id="add-known-server-wrap" class="form-row hidden">
+          <label for="add-known-server">Homelab server (Tailscale)</label>
+          <select id="add-known-server"></select>
         </div>
       </div>
 
-      <div id="add-existing-wrap" class="form-row normal-workspace-field">
-        <label for="add-existing-session">Existing tmux session</label>
-        <select id="add-existing-session"></select>
+      <div class="section-card normal-workspace-field">
+        <div class="section-head"><h3>Tabs</h3></div>
+        <div class="form-row">
+          <label for="add-panel-source">Panel Source</label>
+          <select id="add-panel-source"></select>
+        </div>
+
+        <div id="add-template-wrap" class="form-row">
+          <label for="add-template-select">Panel Template</label>
+          <select id="add-template-select"></select>
+        </div>
+
+        <div id="add-source-profile-wrap" class="form-row">
+          <label for="add-source-profile">Copy Tabs From Workspace</label>
+          <select id="add-source-profile"></select>
+        </div>
       </div>
 
-      <div id="add-new-session-wrap" class="form-row hidden normal-workspace-field">
-        <label for="add-new-session">New tmux session name</label>
-        <input id="add-new-session" type="text" placeholder="job1">
-      </div>
+      <div class="section-card normal-workspace-field">
+        <div class="section-head"><h3>Terminal</h3></div>
+        <div class="form-row">
+          <label for="add-label">Workspace Label</label>
+          <input id="add-label" type="text" placeholder="netochka">
+        </div>
 
-      <div id="add-note" class="muted-note normal-workspace-field"></div>
+        <div class="form-row">
+          <label>Terminal tmux Session</label>
+          <div class="radio-row">
+            <label><input type="radio" name="tmux-source" value="existing" checked> Existing</label>
+            <label><input type="radio" name="tmux-source" value="new"> New</label>
+          </div>
+        </div>
+
+        <div id="add-existing-wrap" class="form-row">
+          <label for="add-existing-session">Existing tmux session</label>
+          <select id="add-existing-session"></select>
+        </div>
+
+        <div id="add-new-session-wrap" class="form-row hidden">
+          <label for="add-new-session">New tmux session name</label>
+          <input id="add-new-session" type="text" placeholder="job1">
+        </div>
+
+        <div id="add-note" class="muted-note"></div>
+      </div>
 
       <div id="add-actions">
         <button id="add-cancel" class="secondary-btn" type="button">Cancel</button>
