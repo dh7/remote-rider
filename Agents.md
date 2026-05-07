@@ -5,7 +5,7 @@
 `remote-rider` is a control plane for multiple remote coding agents where:
 
 - The control host provides one shared operator webpage.
-- Each left-sidebar session is a control-side workspace.
+- Each left-sidebar workspace is a control-side workspace.
 - Each workspace points at one machine and one remote agent context.
 - Remote machines own runtime truth and keep running even if control goes away.
 - Agents and CLI tools can expose new tabs/services back into the control workspace.
@@ -22,18 +22,18 @@ When shipping changes that affect both control UI/API and remote runtime, push o
 1. Pull on netochka, restart control hub.
 2. Pull on each remote, restart remote stack.
 
-## Hub Topology: One Per Machine (not per session)
+## Hub Topology: One Per Machine (not per workspace)
 
-Each machine runs exactly one hub process (port 7000). Sessions are a control-plane concept only — the machine does not need to know which session it belongs to.
+Each machine runs exactly one hub process (port 7000). Workspaces are a control-plane concept only — the machine does not need to know which workspace it belongs to.
 
 **Rationale for this choice:**
 - One process, one port per machine — simple to operate and update.
-- A machine hub can serve multiple sessions (e.g. two repos on the same machine) without extra processes.
+- A machine hub can serve multiple workspaces (e.g. two repos on the same machine) without extra processes.
 - Kill/restart/update applies to the whole machine in one operation.
-- CLI tools only need machine IP + control IP — no session-level hub to find or start.
-- In a single-user Tailscale network, the machine is already the natural isolation boundary. Per-session hubs would add process overhead and port management complexity without meaningful isolation gain.
+- CLI tools only need machine IP + control IP — no workspace-level hub to find or start.
+- In a single-user Tailscale network, the machine is already the natural isolation boundary. Per-workspace hubs would add process overhead and port management complexity without meaningful isolation gain.
 
-Sessions pointing at the same machine all go through the same hub. The control plane owns session identity; the hub owns runtime.
+Workspaces pointing at the same machine all go through the same hub. The control plane owns workspace identity; the hub owns runtime.
 
 ## Architectural Data Domains
 
@@ -43,10 +43,10 @@ Owned by the control host.
 - Purpose: known machines, hostnames/IPs, bootstrap defaults
 - APIs: `/machines`, `/control/context`, related control-side inventory routes
 
-### 2. Sessions / Workspaces
+### 2. Workspaces
 Owned by the control host.
 - Source of truth: `sessions.json`
-- Purpose: sidebar sessions, ordering, labels, chosen tabs, machine binding
+- Purpose: sidebar workspaces, ordering, labels, chosen tabs, machine binding
 - Browser `localStorage` is only a cache/fallback, not the durable source
 - APIs: `/sessions` and control-side session mutation routes
 
@@ -66,7 +66,7 @@ Owned by the control host, called by remote agents or CLI tools.
 
 Each repo or working directory can contain a `.rr` file with two things only:
 - The control plane URL (e.g. `http://100.x.x.x:7000`)
-- The session name this directory belongs to
+- The workspace/session name this directory belongs to
 
 If a tool needs anything beyond that it calls the control API. The `.rr` file is intentionally minimal — it is a pointer, not a configuration store.
 
@@ -76,7 +76,7 @@ If a tool needs anything beyond that it calls the control API. The `.rr` file is
 each tool does one thing, but unlike a plain shell script it can surface a UI tab in the control plane.
 
 Design rules:
-- Read `.rr` to find control URL + session name.
+- Read `.rr` to find control URL + workspace/session name.
 - Start a local service on a free port.
 - Call `POST /sessions/{session}/tabs` on the control plane to register a tab.
 - Use a **descriptive label** (e.g. `Files: /data/results`, `Preview: feature/xyz`) — label is the tab identity within a session. Same label = update existing tab. Different label = new tab.
@@ -84,7 +84,7 @@ Design rules:
 
 Examples:
 - `rr-files /path` — starts a file browser for that path, adds a Files tab
-- `rr-files /path/a` + `rr-files /path/b` — two separate file tabs in the same session
+- `rr-files /path/a` + `rr-files /path/b` — two separate file tabs in the same workspace
 - `rr-skill` — starts a Skills tab that manages project-scoped dh7skills access
 - `rr-notes` — starts a Notes tab for `Agents.md`, `TODO.md`, and `STATUS.md`
 - Agents can do the same: spawn any small HTTP server, register it as a tab, expose it to the operator
@@ -106,7 +106,7 @@ Agents should update `STATUS.md` from time to time during meaningful work, espec
 - `dh7skills` owns the canonical `dh7skill` CLI, skill discovery, project manifests, symlinks, env vars, and secrets.
 - `remote-rider` owns the `rr-skill` adapter: an HTML/API server that reads `.rr`, registers a Skills tab, and shells out to `dh7skill`.
 
-This keeps `dh7skills` usable without Remote Rider while letting every Remote Rider session get a UI for adding/removing project skills.
+This keeps `dh7skills` usable without Remote Rider while letting every Remote Rider workspace get a UI for adding/removing project skills.
 
 Project skill state lives in `.dh7skills.json`, not `.rr`. The `.rr` file stays a Remote Rider pointer only.
 

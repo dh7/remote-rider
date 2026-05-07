@@ -1,9 +1,9 @@
 # TODO
 
 ## Next
-- [ ] the concept of rr-session is confusing, let's rename everywhere "workspace"
-- [ ] no gradient in the cards in the "workspace" cards. keep the dot for the color, but make them all background dark (no color, expect the one that is selected.
-- [ ] Grill the "sandbox" system and how it should be connected to the "Add workspace", grill the add workspace too and find what we can improve.
+- [ ] Decide whether to add `/workspaces` API aliases while keeping `/sessions` compatibility.
 
 ## Done
-- [ ] 
+- [x] Rename the user-facing sidebar concept from session to workspace while keeping the `/sessions` API/storage names compatible.
+- [x] Remove gradients from workspace cards; keep color on the dot and selected workspace state only.
+- [x] Connect sandbox creation to Add Workspace by adding a Feature sandbox workspace option and tightening sandbox wording.

@@ -9,12 +9,12 @@ Browser-based terminal dashboard with tabs for:
 
 ## Key Architecture
 
-- **Client-side session config**: left sidebar sessions/order/labels are saved in browser `localStorage`.
-- **Control-side session store**: sessions are persisted to `sessions.json` on the control host, with browser localStorage kept as a fallback cache.
+- **Client-side workspace config**: left sidebar workspaces/order/labels are saved in browser `localStorage`.
+- **Control-side workspace store**: workspaces are persisted to `sessions.json` on the control host, with browser localStorage kept as a fallback cache.
 - **Server-side runtime**: each machine runs its own services and exposes ports.
 - `machines.json` is the machine inventory/bootstrap list for first page load.
 - `servers.json` remains as a legacy fallback during migration.
-- `session_templates.json` defines control-side default panel templates for new sessions.
+- `session_templates.json` defines control-side default panel templates for new workspaces.
 
 This avoids cross-machine profile drift and lets each client keep its own view layout.
 
@@ -63,24 +63,24 @@ or:
 
 `start.sh` remains available and starts a full local stack.
 
-## Add Session Flow
+## Add Workspace Flow
 
 Click `+` in sidebar:
 
-1. Select an existing session or `+ New machine / session`
+1. Select an existing workspace or `+ New machine / workspace`
 2. Choose machine host/IP (includes homelab Tailscale presets)
 3. Choose panel source:
-   - existing session (clone tab layout)
+   - existing workspace (clone tab layout)
    - panel template (from control-side `session_templates.json`)
 4. If using template source, choose a panel template
-5. Choose terminal session source:
+5. Choose terminal tmux session source:
    - existing tmux session (queried from selected host)
    - new tmux session name
 6. Create (the UI will also try to pull live panel ports from the target host)
 
-## Session Setup Flow
+## Workspace Setup Flow
 
-Each session row includes `S` (setup). Use it to maintain tab mappings after creation:
+Each workspace row includes setup. Use it to maintain tab mappings after creation:
 
 - Add custom tab
 - Remove tab
@@ -88,11 +88,11 @@ Each session row includes `S` (setup). Use it to maintain tab mappings after cre
 - Sync tab list/ports from remote (`/machines/proxy`)
 - Discover remote services and adopt them as tabs
 - Launch a new files service on the target host and wire `Files` panel automatically
-- Save updated session config to browser localStorage
+- Save updated workspace config to browser localStorage
 
 This is the fastest way to fix broken Monitor/Logs/Files/Terminal mappings after restarts or port shifts.
 
-The tabs bar also includes `+` to open setup quickly and add a new panel/tab to the active session.
+The tabs bar also includes `+` to open setup quickly and add a new panel/tab to the active workspace.
 Each tab shows a status dot:
 
 - green = reachable
@@ -115,11 +115,11 @@ Each template entry uses:
 
 - `GET /machines` -> bootstrap machine inventory
 - `GET /servers` -> legacy-compatible bootstrap alias
-- `GET /sessions` -> control-side saved sessions/workspaces
-- `PUT /sessions` -> replace control-side saved sessions/workspaces
-- `GET /sessions/<name>` -> one saved session/workspace
-- `POST /sessions/<name>/tabs` -> add/update a tab in a saved session
-- `DELETE /sessions/<name>/tabs` -> remove a tab from a saved session
+- `GET /sessions` -> control-side saved workspaces
+- `PUT /sessions` -> replace control-side saved workspaces
+- `GET /sessions/<name>` -> one saved workspace
+- `POST /sessions/<name>/tabs` -> add/update a tab in a saved workspace
+- `DELETE /sessions/<name>/tabs` -> remove a tab from a saved workspace
 - `GET /control/context` -> control-side view of known machines, sessions, and templates
 - `GET /session-templates` -> panel templates for add-session modal
 - `GET /panel/status?host=<ip>&port=<n>` -> single panel port health probe

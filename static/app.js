@@ -382,7 +382,7 @@ function slug(value) {
 }
 
 function makeUniqueName(base) {
-  const cleaned = String(base || 'session').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
+  const cleaned = String(base || 'workspace').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'workspace';
   const names = new Set(state.sessions.map((s) => s.name));
   if (!names.has(cleaned)) return cleaned;
   let i = 2;
@@ -717,7 +717,7 @@ async function reloadSessions(preferredName) {
 }
 
 async function deleteSession(server) {
-  if (!confirm(`Delete session "${displayName(server)}"?`)) return;
+  if (!confirm(`Delete workspace "${displayName(server)}"?`)) return;
   state.sessions = state.sessions.filter((s) => s.name !== server.name);
   saveProfiles();
   const fallback = state.activeSession === server.name ? null : state.activeSession;
@@ -728,7 +728,7 @@ async function deleteSessionAndKill(server) {
   const session = terminalSessionForSession(server);
   const host = sessionMachineHost(server) || server.ip;
   const ok = confirm(
-    `Delete profile "${displayName(server)}" and try to kill tmux session "${session}" on ${host}?\n\n` +
+    `Delete workspace "${displayName(server)}" and try to kill tmux session "${session}" on ${host}?\n\n` +
     `This can stop running terminal tasks.`
   );
   if (!ok) return;
@@ -1001,7 +1001,7 @@ async function startFilesServiceForEditor(requestedPort = null) {
 
   renderPanelEditorRows();
   await refreshDiscoveredServices();
-  alert(`Files service started on ${host}:${filesPort} and wired into this session.`);
+  alert(`Files service started on ${host}:${filesPort} and wired into this workspace.`);
 }
 
 async function launchFilesServiceFromPanelEditor() {
@@ -1124,7 +1124,7 @@ async function populateServerChoices() {
   if (state.sessions.length) {
     const sourceProfileOpt = document.createElement('option');
     sourceProfileOpt.value = 'profile';
-    sourceProfileOpt.textContent = 'Existing session';
+    sourceProfileOpt.textContent = 'Existing workspace';
     addPanelSource.appendChild(sourceProfileOpt);
   }
 
@@ -1137,7 +1137,7 @@ async function populateServerChoices() {
 
   if (state.sessions.length) {
     const sessionGroup = document.createElement('optgroup');
-    sessionGroup.label = 'Existing Sessions';
+    sessionGroup.label = 'Existing Workspaces';
     state.sessions.forEach((server) => {
       const resolved = sessionMachineHost(server) || server.ip || 'unknown-host';
       const text = `${displayName(server)} (${resolved})`;
@@ -1167,8 +1167,13 @@ async function populateServerChoices() {
 
   const newOpt = document.createElement('option');
   newOpt.value = '__new__';
-  newOpt.textContent = '+ New machine / session';
+  newOpt.textContent = '+ New machine / workspace';
   addServerSelect.appendChild(newOpt);
+
+  const sandboxOpt = document.createElement('option');
+  sandboxOpt.value = '__sandbox__';
+  sandboxOpt.textContent = '+ Feature sandbox workspace';
+  addServerSelect.appendChild(sandboxOpt);
 
   if (current) {
     const host = sessionMachineHost(current) || current.ip || '127.0.0.1';
@@ -1220,8 +1225,13 @@ function selectedTmuxSession() {
 async function submitAddModal() {
   const selected = addServerSelect.value;
   const isNew = selected === '__new__';
+  if (selected === '__sandbox__') {
+    closeAddModal();
+    await openSandboxModal();
+    return;
+  }
   const session = selectedTmuxSession();
-  const label = (addLabel.value.trim() || 'session');
+  const label = (addLabel.value.trim() || 'workspace');
   const selectedTemplate = state.templates.find((t) => t.id === addTemplateSelect.value) || state.templates[0];
   const templatePanels = selectedTemplate ? normalizePanels(selectedTemplate.panels) : [];
   const panelSource = addPanelSource.value || 'profile';
@@ -1229,7 +1239,7 @@ async function submitAddModal() {
   const profilePanels = sourceProfile ? normalizePanels(clonePanels(sourceProfile)) : [];
 
   let targetHost;
-  let nameSeed = 'session';
+  let nameSeed = 'workspace';
 
   if (isNew) {
     targetHost = addServerIp.value.trim();
@@ -1413,7 +1423,7 @@ function renderSidebar() {
     const gear = document.createElement('button');
     gear.className = 'icon-btn';
     gear.textContent = '⚙';
-    gear.title = 'Session setup';
+    gear.title = 'Workspace setup';
     gear.onclick = (e) => { e.stopPropagation(); openPanelModal(server); };
 
     row.appendChild(drag);
@@ -1617,7 +1627,7 @@ async function openSandboxModal() {
     machineSelect.appendChild(opt);
   }
 
-  // Default to active session's machine
+  // Default to active workspace's machine.
   const active = state.sessions.find((s) => s.name === state.activeSession);
   if (active) {
     const host = sessionMachineHost(active) || active.ip || '';
@@ -1675,7 +1685,7 @@ async function refreshSandboxList(host) {
         openBtn.className = 'secondary-btn';
         openBtn.type = 'button';
         openBtn.textContent = 'Select';
-        openBtn.title = 'Jump to this session in the sidebar';
+        openBtn.title = 'Jump to this workspace in the sidebar';
         openBtn.onclick = () => {
           const session = state.sessions.find((s) => {
             const t = (s.tabs || []).find((tab) => tab.port === sb.ttyd_port);
@@ -1825,7 +1835,7 @@ async function init() {
   document.getElementById('panel-delete').onclick = () => {
     if (!state.panelEditor) return;
     const server = state.sessions.find((s) => s.name === state.panelEditor.name);
-    if (!server || !confirm(`Delete session "${displayName(server)}"?`)) return;
+    if (!server || !confirm(`Delete workspace "${displayName(server)}"?`)) return;
     closePanelModal();
     state.sessions = state.sessions.filter((s) => s.name !== server.name);
     saveProfiles();
@@ -1880,6 +1890,11 @@ async function init() {
 
   addServerSelect.addEventListener('change', async () => {
     updateServerChoiceVisibility();
+    if (addServerSelect.value === '__sandbox__') {
+      closeAddModal();
+      await openSandboxModal();
+      return;
+    }
     if (addServerSelect.value === '__new__') {
       const baseServer = state.sessions.find((s) => s.name === state.activeSession) || state.sessions[0];
       const suggestedHost = baseServer ? (sessionMachineHost(baseServer) || baseServer.ip || '') : '';

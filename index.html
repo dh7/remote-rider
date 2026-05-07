@@ -7,11 +7,11 @@
 <body>
   <div id="sidebar">
     <div id="sidebar-header">
-      <div id="sidebar-title">Sessions</div>
+      <div id="sidebar-title">Workspaces</div>
       <div id="sidebar-actions">
         <button id="update-remotes-btn" title="Update all remotes">Update</button>
-        <button id="new-sandbox-btn" title="New feature sandbox">⬡</button>
-        <button id="add-session-btn" title="Add session">+</button>
+        <button id="new-sandbox-btn" title="New sandbox workspace">⬡</button>
+        <button id="add-session-btn" title="Add workspace">+</button>
       </div>
     </div>
     <div id="session-list"></div>
@@ -23,10 +23,10 @@
 
   <div id="add-modal">
     <div id="add-card">
-      <h2>Add Session</h2>
+      <h2>Add Workspace</h2>
 
       <div class="form-row">
-        <label for="add-server-select">Target Machine or Session</label>
+        <label for="add-server-select">Target Machine or Workspace</label>
         <select id="add-server-select"></select>
       </div>
 
@@ -48,7 +48,7 @@
       </div>
 
       <div id="add-source-profile-wrap" class="form-row">
-        <label for="add-source-profile">Copy Tabs From Session</label>
+        <label for="add-source-profile">Copy Tabs From Workspace</label>
         <select id="add-source-profile"></select>
       </div>
 
@@ -58,12 +58,12 @@
       </div>
 
       <div class="form-row">
-        <label for="add-label">Session Label</label>
+        <label for="add-label">Workspace Label</label>
         <input id="add-label" type="text" placeholder="netochka">
       </div>
 
       <div class="form-row">
-        <label>Terminal Session</label>
+        <label>Terminal tmux Session</label>
         <div class="radio-row">
           <label><input type="radio" name="tmux-source" value="existing" checked> Existing</label>
           <label><input type="radio" name="tmux-source" value="new"> New</label>
@@ -84,21 +84,21 @@
 
       <div id="add-actions">
         <button id="add-cancel" class="secondary-btn" type="button">Cancel</button>
-        <button id="add-submit" class="primary-btn" type="button">Create Session</button>
+        <button id="add-submit" class="primary-btn" type="button">Create Workspace</button>
       </div>
     </div>
   </div>
 
   <div id="panel-modal">
     <div id="panel-card">
-      <h2>Session Setup</h2>
+      <h2>Workspace Setup</h2>
       <div id="panel-target" class="muted-note"></div>
       <div class="section-card">
-        <div class="section-head"><h3>Session</h3></div>
+        <div class="section-head"><h3>Workspace</h3></div>
         <div class="inline-row">
           <div class="form-row">
             <label for="panel-session-label">Label</label>
-            <input id="panel-session-label" type="text" placeholder="Session label">
+            <input id="panel-session-label" type="text" placeholder="Workspace label">
           </div>
           <div class="form-row">
             <label for="panel-session-color">Color</label>
@@ -108,7 +108,7 @@
       </div>
       <div class="section-card">
         <div class="section-head">
-          <h3>Session Tabs</h3>
+          <h3>Workspace Tabs</h3>
         </div>
         <div id="panel-list"></div>
       </div>
@@ -140,7 +140,7 @@
 
   <div id="sandbox-modal">
     <div id="sandbox-card">
-      <h2>Feature Sandbox</h2>
+      <h2>Sandbox Workspace</h2>
 
       <div id="sandbox-running-wrap" class="section-card hidden">
         <div class="section-head"><h3>Running Sandboxes</h3></div>
@@ -196,7 +196,7 @@
       <div id="sandbox-status" class="muted-note"></div>
       <div id="sandbox-actions">
         <button id="sandbox-cancel" class="secondary-btn" type="button">Cancel</button>
-        <button id="sandbox-submit" class="primary-btn" type="button">Create Sandbox</button>
+        <button id="sandbox-submit" class="primary-btn" type="button">Create Workspace</button>
       </div>
     </div>
   </div>
