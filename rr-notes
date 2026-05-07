@@ -74,10 +74,14 @@ HTML = r"""<!doctype html>
     button:hover { background: #283347; }
     button.active { border-color: #4b7fb8; background: #223a58; }
     button:disabled { opacity: .5; cursor: not-allowed; }
-    main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 42%) 1fr; }
-    .editor, .preview { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-    .editor { border-right: 1px solid #272d36; }
+    main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .pane { min-width: 0; min-height: 0; display: flex; flex: 1; flex-direction: column; }
     .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; padding: 8px 10px; border-bottom: 1px solid #272d36; background: #141922; }
+    .bar-actions { display: flex; align-items: center; gap: 8px; }
+    .mode-switch { display: inline-flex; gap: 0; }
+    .mode-switch button { border-radius: 0; }
+    .mode-switch button:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+    .mode-switch button:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; margin-left: -1px; }
     textarea { flex: 1; width: 100%; resize: none; border: 0; outline: 0; padding: 12px; background: #0d1015; color: #e8ebf2; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.45; }
     article { flex: 1; overflow: auto; padding: 16px 20px; line-height: 1.5; }
     article h1, article h2, article h3 { margin: 1em 0 .4em; }
@@ -85,7 +89,6 @@ HTML = r"""<!doctype html>
     article pre { background: #0d1015; border: 1px solid #29303a; border-radius: 6px; padding: 10px; overflow-x: auto; }
     article code { background: #1c222c; border-radius: 4px; padding: 1px 4px; }
     .status-grid { display: flex; gap: 10px; flex-wrap: wrap; }
-    @media (max-width: 860px) { main { grid-template-columns: 1fr; } .editor { border-right: 0; border-bottom: 1px solid #272d36; min-height: 42vh; } }
   </style>
 </head>
 <body>
@@ -105,30 +108,33 @@ HTML = r"""<!doctype html>
     <button id="tab-status" onclick="selectFile('status')">Status</button>
   </nav>
   <main>
-    <section class="editor">
+    <section class="pane">
       <div class="bar">
         <div>
           <strong id="title"></strong>
           <span class="muted" id="path"></span>
         </div>
-        <div>
+        <div class="bar-actions">
+          <div class="mode-switch" role="group" aria-label="View mode">
+            <button id="mode-preview" onclick="setMode('preview')">Markdown</button>
+            <button id="mode-code" onclick="setMode('code')">Code</button>
+          </div>
           <button id="create" onclick="createFile()">Create</button>
           <button id="save" onclick="saveFile()">Save</button>
         </div>
       </div>
       <textarea id="text" spellcheck="false"></textarea>
-    </section>
-    <section class="preview">
+      <article id="preview"></article>
       <div class="bar">
-        <strong>Preview</strong>
         <span class="muted" id="message"></span>
       </div>
-      <article id="preview"></article>
     </section>
   </main>
   <script>
     let state = null;
     let current = 'agent';
+    let mode = 'preview';
+    const drafts = {};
     const labels = {agent: 'Agent File', todo: 'TODO.md', status: 'STATUS.md'};
     async function api(path, body) {
       const opts = body ? {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)} : {};
@@ -139,6 +145,7 @@ HTML = r"""<!doctype html>
     }
     async function refresh() {
       state = await api('/api/state');
+      for (const kind of Object.keys(drafts)) delete drafts[kind];
       document.getElementById('project').textContent = state.project;
       document.getElementById('git').textContent = state.git.branch ? `${state.git.branch} · ${state.git.dirty_count} dirty` : '';
       render();
@@ -147,16 +154,26 @@ HTML = r"""<!doctype html>
       current = kind;
       render();
     }
+    function setMode(nextMode) {
+      mode = nextMode;
+      render();
+    }
     function render() {
       for (const kind of Object.keys(labels)) document.getElementById(`tab-${kind}`).classList.toggle('active', kind === current);
       const file = state.files[current];
+      if (!(current in drafts)) drafts[current] = file.content || '';
+      const content = drafts[current];
+      document.getElementById('mode-preview').classList.toggle('active', mode === 'preview');
+      document.getElementById('mode-code').classList.toggle('active', mode === 'code');
       document.getElementById('title').textContent = labels[current];
       document.getElementById('path').textContent = file.path ? ` · ${file.path}` : '';
       document.getElementById('create').style.display = file.exists ? 'none' : '';
       document.getElementById('save').disabled = !file.exists && current === 'agent';
-      document.getElementById('text').value = file.content || '';
+      document.getElementById('text').value = content;
       document.getElementById('text').disabled = !file.exists && current === 'agent';
-      renderMarkdown(file.exists ? file.content : missingText(current));
+      document.getElementById('text').style.display = mode === 'code' ? '' : 'none';
+      document.getElementById('preview').style.display = mode === 'preview' ? '' : 'none';
+      renderMarkdown(file.exists ? content : missingText(current));
       document.getElementById('message').textContent = file.exists ? '' : 'missing';
     }
     function missingText(kind) {
@@ -166,12 +183,15 @@ HTML = r"""<!doctype html>
     async function createFile() {
       const data = await api('/api/create', {kind: current});
       state.files[current] = data.file;
+      drafts[current] = data.file.content || '';
+      mode = 'code';
       render();
     }
     async function saveFile() {
       const content = document.getElementById('text').value;
       const data = await api('/api/save', {kind: current, content});
       state.files[current] = data.file;
+      drafts[current] = data.file.content || '';
       document.getElementById('message').textContent = 'saved';
       renderMarkdown(content);
     }
@@ -213,7 +233,10 @@ HTML = r"""<!doctype html>
       if (inCode) out += '</code></pre>';
       document.getElementById('preview').innerHTML = out || '<p>Empty file.</p>';
     }
-    document.getElementById('text').addEventListener('input', (e) => renderMarkdown(e.target.value));
+    document.getElementById('text').addEventListener('input', (e) => {
+      drafts[current] = e.target.value;
+      renderMarkdown(e.target.value);
+    });
     refresh().catch(err => document.getElementById('message').textContent = String(err));
   </script>
 </body>
