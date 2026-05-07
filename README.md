@@ -26,6 +26,16 @@ This avoids cross-machine profile drift and lets each client keep its own view l
 - Logs: `8002`
 - Files: `8080`
 
+## CLI Install
+
+Install the `rr-*` helper commands into `~/.local/bin` so they work from any repo:
+
+```bash
+~/code/remote-rider/install.sh
+```
+
+This links `rr-init`, `rr-files`, `rr-skill`, and `rr-notes`. Make sure `~/.local/bin` is in `PATH`.
+
 ## Start Modes
 
 ### 1) Remote node mode (run on each target server)
@@ -67,16 +77,12 @@ or:
 
 Click `+` in sidebar:
 
-1. Select an existing workspace or `+ New machine / workspace`
-2. Choose machine host/IP (includes homelab Tailscale presets)
-3. Choose panel source:
-   - existing workspace (clone tab layout)
-   - panel template (from control-side `session_templates.json`)
-4. If using template source, choose a panel template
-5. Choose terminal tmux session source:
+1. Set the workspace label, machine, and workspace type in `Workspace config`.
+2. Choose tabs from service checkboxes. `Terminal` is mandatory; `Notes`, `Skills`, and `Files` are selected by default, and other live services appear unchecked.
+3. Choose terminal tmux session source:
    - existing tmux session (queried from selected host)
    - new tmux session name
-6. Create (the UI will also try to pull live panel ports from the target host)
+4. Create the workspace.
 
 ## Workspace Setup Flow
 

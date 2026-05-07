@@ -1,5 +1,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-family: monospace; }
+:root {
+  --workspace-chrome-bg: color-mix(in srgb, var(--active-color, transparent) 38%, #111);
+}
 
 #sidebar {
   width: 280px;
@@ -9,7 +12,7 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   gap: 0.5rem;
   border-right: 1px solid #2a2a4a;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--active-color, transparent) 18%, #0c0c16);
+  background: var(--workspace-chrome-bg);
   transition: background 0.3s ease;
 }
 
@@ -169,7 +172,7 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   display: flex;
   gap: 2px;
   padding: 0.4rem 0.5rem;
-  background: color-mix(in srgb, var(--active-color, transparent) 38%, #111);
+  background: var(--workspace-chrome-bg);
   border-bottom: 1px solid color-mix(in srgb, var(--active-color, #2a2a4a) 55%, #2a2a4a);
   align-items: center;
 }

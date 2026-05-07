@@ -1,10 +1,12 @@
 # TODO
 
 ## Next
-- [ ] (tfgpu2) [0.000s] dh@netochka-01:~/code/gerald$ rr-init --help
-rr-init: command not found
+- [ ] Decide whether Sandbox Workspace should fully live inside Add Workspace or keep using the existing sandbox modal.
+- [ ] Decide whether `/workspaces` API aliases are worth adding while keeping `/sessions` compatibility.
 
 ## Done
+- [x] Add `install.sh` to link `rr-init`, `rr-files`, `rr-skill`, and `rr-notes` into `~/.local/bin`; ran it so `rr-init --help` works from other repos.
+- [x] Match the left workspace panel background color to the tab panel background color.
 - [x] Rename the user-facing sidebar concept from session to workspace while keeping the `/sessions` API/storage names compatible.
 - [x] Connect sandbox creation to Add Workspace through an explicit Workspace Type selector and tighten sandbox wording.
 - [x] Remove existing workspaces from the Add Workspace target selector.

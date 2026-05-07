@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-Understand and simplify the Add Workspace flow.
+Polish Remote Rider helper installation and UI chrome.
 
 ## Last Updated
 
@@ -26,6 +26,8 @@ Understand and simplify the Add Workspace flow.
 - Moved Workspace Label, Machine, and Workspace Type into one Workspace config section, with label first.
 - Add Workspace Tabs now includes additional live services from the selected machine as unchecked options.
 - Removed the small tmux session summary text below the terminal session selector.
+- Added `install.sh` to link `rr-*` helper commands into `~/.local/bin` and ran it locally, fixing `rr-init: command not found` from other repos on this machine.
+- Matched the left workspace panel background color to the tab panel background color.
 
 ## Current State
 
@@ -39,6 +41,7 @@ Understand and simplify the Add Workspace flow.
 - The Tabs section now creates tabs from checked services instead of templates or copied workspaces.
 - The sandbox path is now: Workspace Type = Sandbox, then Configure Sandbox opens the sandbox modal.
 - Add Workspace is still a single modal, but it is no longer one undifferentiated form.
+- `rr-init --help` resolves through `/home/dh/.local/bin/rr-init`.
 
 ## Next Steps
 
