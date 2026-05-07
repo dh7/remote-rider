@@ -118,7 +118,7 @@
         "id": "tab-skills",
         "label": "Skills",
         "service": "skills-netochka-imgbench-ai-job2",
-        "port": 8132,
+        "port": 8129,
         "path": "/",
         "protocol": "http",
         "ephemeral": true
@@ -164,7 +164,7 @@
         "id": "tab-skills",
         "label": "Skills",
         "service": "skills-netochka-image-bench-job1",
-        "port": 8127,
+        "port": 8128,
         "path": "/",
         "protocol": "http",
         "ephemeral": true
@@ -216,7 +216,7 @@
         "id": "tab-skills",
         "label": "Skills",
         "service": "skills-remote-rider",
-        "port": 8129,
+        "port": 8127,
         "path": "/",
         "protocol": "http",
         "ephemeral": true
@@ -232,8 +232,7 @@
       }
     ],
     "display": "Remote Rider",
-    "color": "#2563eb",
-    "active_tab": "tab-notes"
+    "color": "#2563eb"
   },
   {
     "name": "remote-rider-ui-polish",
@@ -355,12 +354,13 @@
         "id": "tab-skills",
         "label": "Skills",
         "service": "skills-netochka-dh7skills-skills",
-        "port": 8128,
+        "port": 8132,
         "path": "/",
         "protocol": "http",
         "ephemeral": true
       }
     ],
-    "display": "dh7skills"
+    "display": "dh7skills",
+    "active_tab": "tab-skills"
   }
 ]

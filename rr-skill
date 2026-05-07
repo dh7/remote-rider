@@ -84,7 +84,7 @@ HTML = r"""<!doctype html>
       if (s.secrets_required && s.secrets_required.length) parts.push('secrets: ' + s.secrets_required.join(', '));
       return parts.join(' | ');
     };
-    const row = (skill, installed) => {
+    const row = (skill, installed, detail) => {
       const el = document.createElement('div');
       el.className = 'row';
       const info = document.createElement('div');
@@ -93,7 +93,7 @@ HTML = r"""<!doctype html>
       name.textContent = skill.name;
       const desc = document.createElement('div');
       desc.className = 'desc';
-      desc.textContent = skill.description || '';
+      desc.textContent = detail ? `${skill.description || ''} ${detail}`.trim() : (skill.description || '');
       info.appendChild(name);
       if (skill.description) info.appendChild(desc);
       const access = accessText(skill);
@@ -118,35 +118,54 @@ HTML = r"""<!doctype html>
       if (!resp.ok || data.status === 'error') throw new Error(data.error || resp.statusText);
       return data;
     }
-    async function refresh() {
+    async function refresh(message) {
       try {
         state = await api('/api/state');
         document.getElementById('project').textContent = state.project;
-        const installedNames = new Set(state.installed.manifest.skills || []);
+        const managedNames = new Set(state.installed.manifest.skills || []);
+        const linkedNames = new Set(state.installed.linked || []);
+        const installedNames = new Set([...managedNames, ...linkedNames]);
         const installed = document.getElementById('installed');
         const available = document.getElementById('available');
         installed.innerHTML = '';
         available.innerHTML = '';
         for (const skill of state.skills.skills || []) {
-          (installedNames.has(skill.name) ? installed : available).appendChild(row(skill, installedNames.has(skill.name)));
+          const isInstalled = installedNames.has(skill.name);
+          const detail = isInstalled && !managedNames.has(skill.name) ? '(linked, not in manifest)' : '';
+          (isInstalled ? installed : available).appendChild(row(skill, isInstalled, detail));
         }
         if (!installed.children.length) installed.textContent = 'No project skills installed.';
-        log(JSON.stringify(state.installed.access_required || {}, null, 2));
+        const managed = [...managedNames].sort();
+        const linked = [...linkedNames].sort();
+        log(message || [
+          `Refreshed ${new Date().toLocaleTimeString()}`,
+          `Managed: ${managed.join(', ') || 'none'}`,
+          `Linked: ${linked.join(', ') || 'none'}`,
+        ].join('\n'));
       } catch (err) {
         log(String(err));
       }
     }
     async function addSkill(name) {
       log('Adding ' + name + '...');
-      try { log(JSON.stringify(await api('/api/add', {name, passphrase: passphraseValue()}), null, 2)); await refresh(); } catch (err) { log(String(err)); }
+      try {
+        const result = await api('/api/add', {name, passphrase: passphraseValue()});
+        await refresh(`Added ${name}\nLinked ${result.linked ? result.linked.length : 0} paths`);
+      } catch (err) { log(String(err)); }
     }
     async function removeSkill(name) {
       log('Removing ' + name + '...');
-      try { log(JSON.stringify(await api('/api/remove', {name, passphrase: passphraseValue()}), null, 2)); await refresh(); } catch (err) { log(String(err)); }
+      try {
+        const result = await api('/api/remove', {name, passphrase: passphraseValue()});
+        await refresh(`Removed ${name}\nRemoved ${result.removed ? result.removed.length : 0} paths`);
+      } catch (err) { log(String(err)); }
     }
     async function syncSkills() {
       log('Syncing...');
-      try { log(JSON.stringify(await api('/api/sync', {passphrase: passphraseValue()}), null, 2)); await refresh(); } catch (err) { log(String(err)); }
+      try {
+        const result = await api('/api/sync', {passphrase: passphraseValue()});
+        await refresh(`Synced ${result.project}\nLinked ${result.linked ? result.linked.length : 0} paths\nMissing ${result.missing_skills ? result.missing_skills.length : 0} skills`);
+      } catch (err) { log(String(err)); }
     }
     function passphraseValue() {
       return document.getElementById('passphrase').value || '';
