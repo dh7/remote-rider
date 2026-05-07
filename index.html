@@ -26,7 +26,29 @@
       <h2>Add Workspace</h2>
 
       <div class="section-card">
-        <div class="section-head"><h3>Type</h3></div>
+        <div class="section-head"><h3>Workspace config</h3></div>
+        <div class="form-row">
+          <label for="add-label">Workspace Label</label>
+          <input id="add-label" type="text" placeholder="netochka">
+        </div>
+
+        <div class="form-row normal-workspace-field">
+          <label for="add-server-select">Machine</label>
+          <select id="add-server-select"></select>
+        </div>
+
+        <div id="add-new-server-wrap" class="inline-row hidden normal-workspace-field">
+          <div class="form-row">
+            <label for="add-server-ip">Machine IP/Host</label>
+            <input id="add-server-ip" type="text" placeholder="100.x.x.x or hostname">
+          </div>
+        </div>
+
+        <div id="add-known-server-wrap" class="form-row hidden normal-workspace-field">
+          <label for="add-known-server">Homelab server (Tailscale)</label>
+          <select id="add-known-server"></select>
+        </div>
+
         <div class="form-row">
           <label for="add-workspace-type">Workspace Type</label>
           <select id="add-workspace-type">
@@ -37,42 +59,12 @@
       </div>
 
       <div class="section-card normal-workspace-field">
-        <div class="section-head"><h3>Machine</h3></div>
-        <div class="form-row">
-          <label for="add-server-select">Machine</label>
-          <select id="add-server-select"></select>
-        </div>
-
-        <div id="add-new-server-wrap" class="inline-row hidden">
-          <div class="form-row">
-            <label for="add-server-ip">Machine IP/Host</label>
-            <input id="add-server-ip" type="text" placeholder="100.x.x.x or hostname">
-          </div>
-        </div>
-
-        <div id="add-known-server-wrap" class="form-row hidden">
-          <label for="add-known-server">Homelab server (Tailscale)</label>
-          <select id="add-known-server"></select>
-        </div>
-      </div>
-
-      <div class="section-card normal-workspace-field">
         <div class="section-head"><h3>Tabs</h3></div>
-        <div class="checkbox-stack">
-          <label><input id="add-tab-terminal" type="checkbox" checked disabled> Terminal</label>
-          <label><input id="add-tab-notes" type="checkbox" checked> Notes</label>
-          <label><input id="add-tab-skills" type="checkbox" checked> Skills</label>
-          <label><input id="add-tab-files" type="checkbox" checked> Files</label>
-        </div>
+        <div id="add-tab-options" class="checkbox-stack"></div>
       </div>
 
       <div class="section-card normal-workspace-field">
         <div class="section-head"><h3>Terminal</h3></div>
-        <div class="form-row">
-          <label for="add-label">Workspace Label</label>
-          <input id="add-label" type="text" placeholder="netochka">
-        </div>
-
         <div class="form-row">
           <label>Terminal tmux Session</label>
           <div class="radio-row">
@@ -91,7 +83,6 @@
           <input id="add-new-session" type="text" placeholder="job1">
         </div>
 
-        <div id="add-note" class="muted-note"></div>
       </div>
 
       <div id="add-actions">

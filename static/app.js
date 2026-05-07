@@ -33,15 +33,12 @@ const addNewServerWrap = document.getElementById('add-new-server-wrap');
 const addKnownServerWrap = document.getElementById('add-known-server-wrap');
 const addKnownServer = document.getElementById('add-known-server');
 const addServerIp = document.getElementById('add-server-ip');
-const addTabNotes = document.getElementById('add-tab-notes');
-const addTabSkills = document.getElementById('add-tab-skills');
-const addTabFiles = document.getElementById('add-tab-files');
+const addTabOptions = document.getElementById('add-tab-options');
 const addLabel = document.getElementById('add-label');
 const addExistingWrap = document.getElementById('add-existing-wrap');
 const addExistingSession = document.getElementById('add-existing-session');
 const addNewSessionWrap = document.getElementById('add-new-session-wrap');
 const addNewSession = document.getElementById('add-new-session');
-const addNote = document.getElementById('add-note');
 const panelModal = document.getElementById('panel-modal');
 const panelTarget = document.getElementById('panel-target');
 const panelList = document.getElementById('panel-list');
@@ -594,33 +591,81 @@ function findService(services, names, labels) {
     || null;
 }
 
-async function buildWorkspaceTabs(host) {
-  const snapshot = await fetchRemoteServices(host);
-  const services = snapshot.services || [];
-  const tabFromService = (fallback, names, labels) => {
-    const service = findService(services, names, labels);
-    if (!service) return { ...fallback };
-    return normalizeTab({
-      ...fallback,
-      service: service.name || fallback.service,
-      port: service.port || fallback.port,
-      path: service.path || fallback.path || '/',
-      protocol: service.protocol || fallback.protocol || 'http',
-    });
-  };
+const DEFAULT_WORKSPACE_TABS = [
+  { key: 'terminal', label: 'Terminal', service: 'terminal', port: 7681, path: '/', checked: true, required: true },
+  { key: 'notes', label: 'Notes', service: 'notes', port: 8126, path: '/', checked: true },
+  { key: 'skills', label: 'Skills', service: 'skills', port: 8129, path: '/', checked: true },
+  { key: 'files', label: 'Files', service: 'files', port: 8080, path: '/files', checked: true },
+];
 
-  const tabs = [
-    tabFromService({ label: 'Terminal', service: 'terminal', port: 7681 }, ['terminal'], ['Terminal']),
-  ];
-  if (addTabNotes.checked) {
-    tabs.push(tabFromService({ label: 'Notes', service: 'notes', port: 8126, path: '/' }, ['notes'], ['Notes']));
-  }
-  if (addTabSkills.checked) {
-    tabs.push(tabFromService({ label: 'Skills', service: 'skills', port: 8129, path: '/' }, ['skills'], ['Skills']));
-  }
-  if (addTabFiles.checked) {
-    tabs.push(tabFromService({ label: 'Files', service: 'files', port: 8080, path: '/files' }, ['files'], ['Files']));
-  }
+function tabChoiceFromService(service, fallback = {}) {
+  return {
+    key: fallback.key || service.name || service.label,
+    label: fallback.label || service.label || service.name || 'Service',
+    service: service.name || fallback.service || '',
+    port: Number(service.port || fallback.port || 0),
+    path: service.path || fallback.path || '/',
+    protocol: service.protocol || fallback.protocol || 'http',
+    checked: Boolean(fallback.checked),
+    required: Boolean(fallback.required),
+  };
+}
+
+function renderWorkspaceTabOptions(services = []) {
+  addTabOptions.innerHTML = '';
+  const used = new Set();
+  const choices = DEFAULT_WORKSPACE_TABS.map((fallback) => {
+    const service = findService(services, [fallback.service], [fallback.label]);
+    used.add(String(fallback.service).toLowerCase());
+    used.add(String(fallback.label).toLowerCase());
+    return service ? tabChoiceFromService(service, fallback) : { ...fallback, protocol: 'http' };
+  });
+
+  services
+    .filter((service) => service.embeddable !== false)
+    .forEach((service) => {
+      const name = String(service.name || '').toLowerCase();
+      const label = String(service.label || '').toLowerCase();
+      if (used.has(name) || used.has(label)) return;
+      used.add(name);
+      used.add(label);
+      choices.push(tabChoiceFromService(service));
+    });
+
+  choices.forEach((choice) => {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = Boolean(choice.checked);
+    input.disabled = Boolean(choice.required);
+    input.dataset.label = choice.label;
+    input.dataset.service = choice.service;
+    input.dataset.port = String(choice.port || 0);
+    input.dataset.path = choice.path || '/';
+    input.dataset.protocol = choice.protocol || 'http';
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(choice.label));
+    addTabOptions.appendChild(label);
+  });
+}
+
+async function refreshWorkspaceTabOptions(host) {
+  renderWorkspaceTabOptions();
+  const snapshot = await fetchRemoteServices(host);
+  renderWorkspaceTabOptions(snapshot.services || []);
+}
+
+function buildWorkspaceTabs() {
+  const tabs = Array.from(addTabOptions.querySelectorAll('input[type="checkbox"]'))
+    .filter((input) => input.checked || input.disabled)
+    .map((input) => normalizeTab({
+      label: input.dataset.label,
+      service: input.dataset.service,
+      port: Number(input.dataset.port || 0),
+      path: input.dataset.path || '/',
+      protocol: input.dataset.protocol || 'http',
+    }))
+    .filter(Boolean);
   return normalizePanels(tabs);
 }
 
@@ -1077,13 +1122,8 @@ async function refreshTmuxSessions(host) {
   try {
     const payload = await fetch(`/tmux/sessions/proxy?${query}`).then((r) => r.json());
     state.tmuxSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
-    const header = payload.host || host || 'unknown';
-    addNote.textContent = payload.error
-      ? `Could not fetch tmux from ${header}: ${payload.error}`
-      : `tmux sessions on ${header}: ${state.tmuxSessions.join(', ') || 'none'}`;
   } catch (err) {
     state.tmuxSessions = [];
-    addNote.textContent = `Could not fetch tmux sessions: ${err.message}`;
   }
 }
 
@@ -1185,6 +1225,7 @@ async function populateServerChoices() {
     addLabel.value = displayName(current);
     populateKnownServerOptions(host);
     await refreshTmuxSessions(host);
+    await refreshWorkspaceTabOptions(host);
     const defaultSession = terminalSessionForSession(current);
     fillTmuxOptions(defaultSession);
     addNewSession.value = defaultSession === '1' ? 'job1' : `${defaultSession}-copy`;
@@ -1196,14 +1237,12 @@ async function populateServerChoices() {
     addLabel.value = defaultMachine ? defaultMachine.name : '';
     populateKnownServerOptions(defaultMachine ? defaultMachine.ip : '');
     await refreshTmuxSessions(defaultMachine ? defaultMachine.ip : '127.0.0.1');
+    await refreshWorkspaceTabOptions(defaultMachine ? defaultMachine.ip : '127.0.0.1');
     fillTmuxOptions('1');
     addNewSession.value = 'job1';
   }
 
   addWorkspaceType.value = 'normal';
-  addTabNotes.checked = true;
-  addTabSkills.checked = true;
-  addTabFiles.checked = true;
 
   updateServerChoiceVisibility();
   updateSessionSourceVisibility();
@@ -1262,7 +1301,7 @@ async function submitAddModal() {
     return;
   }
 
-  const tabs = await buildWorkspaceTabs(targetHost);
+  const tabs = buildWorkspaceTabs();
   const newProfile = {
     name: makeUniqueName(`${nameSeed}-${label}-${session}`),
     display: label,
@@ -1894,6 +1933,7 @@ async function init() {
       if (!addLabel.value.trim()) addLabel.value = baseServer ? displayName(baseServer) : '';
       populateKnownServerOptions(suggestedHost);
       await refreshTmuxSessions(suggestedHost || '127.0.0.1');
+      await refreshWorkspaceTabOptions(suggestedHost || '127.0.0.1');
       fillTmuxOptions('1');
     } else if (addServerSelect.value.startsWith('current:')) {
       const sessionName = addServerSelect.value.slice('current:'.length);
@@ -1904,6 +1944,7 @@ async function init() {
         addServerIp.value = host;
         populateKnownServerOptions(host);
         await refreshTmuxSessions(host);
+        await refreshWorkspaceTabOptions(host);
         fillTmuxOptions(terminalSessionForSession(server));
       }
     } else {
@@ -1914,6 +1955,7 @@ async function init() {
       addLabel.value = machine ? machine.name : addLabel.value;
       populateKnownServerOptions(host);
       await refreshTmuxSessions(host || '127.0.0.1');
+      await refreshWorkspaceTabOptions(host || '127.0.0.1');
       fillTmuxOptions('1');
     }
     updateSessionSourceVisibility();
@@ -1925,6 +1967,7 @@ async function init() {
       const match = HOMELAB_SERVERS.find((s) => s.ip === addKnownServer.value);
       if (match && !addLabel.value.trim()) addLabel.value = match.name;
       await refreshTmuxSessions(addKnownServer.value);
+      await refreshWorkspaceTabOptions(addKnownServer.value);
       fillTmuxOptions('1');
       updateSessionSourceVisibility();
     }

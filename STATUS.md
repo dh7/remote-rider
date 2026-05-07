@@ -23,6 +23,9 @@ Understand and simplify the Add Workspace flow.
 - Reworked Add Workspace so existing workspaces are no longer listed as targets. The form now starts with Workspace Type, then a machine-only selector for normal workspaces.
 - Grouped Add Workspace into clearer sections: Type, Machine, Tabs, and Terminal.
 - Replaced the Tabs section with service checkboxes. Terminal is mandatory; Notes, Skills, and Files are selected by default.
+- Moved Workspace Label, Machine, and Workspace Type into one Workspace config section, with label first.
+- Add Workspace Tabs now includes additional live services from the selected machine as unchecked options.
+- Removed the small tmux session summary text below the terminal session selector.
 
 ## Current State
 
@@ -32,7 +35,7 @@ Understand and simplify the Add Workspace flow.
 - Workspace naming is implemented.
 - Workspace card gradient cleanup is skipped for now because the visible UI still has a gradient.
 - Add Workspace no longer treats an existing workspace as a target.
-- The normal workspace path is now: Workspace Type = Normal, Machine, service checkboxes, Workspace Label, Terminal tmux Session.
+- The normal workspace path is now: Workspace config, service checkboxes, Terminal tmux Session.
 - The Tabs section now creates tabs from checked services instead of templates or copied workspaces.
 - The sandbox path is now: Workspace Type = Sandbox, then Configure Sandbox opens the sandbox modal.
 - Add Workspace is still a single modal, but it is no longer one undifferentiated form.
