@@ -33,11 +33,9 @@ const addNewServerWrap = document.getElementById('add-new-server-wrap');
 const addKnownServerWrap = document.getElementById('add-known-server-wrap');
 const addKnownServer = document.getElementById('add-known-server');
 const addServerIp = document.getElementById('add-server-ip');
-const addTemplateWrap = document.getElementById('add-template-wrap');
-const addTemplateSelect = document.getElementById('add-template-select');
-const addPanelSource = document.getElementById('add-panel-source');
-const addSourceProfileWrap = document.getElementById('add-source-profile-wrap');
-const addSourceProfile = document.getElementById('add-source-profile');
+const addTabNotes = document.getElementById('add-tab-notes');
+const addTabSkills = document.getElementById('add-tab-skills');
+const addTabFiles = document.getElementById('add-tab-files');
 const addLabel = document.getElementById('add-label');
 const addExistingWrap = document.getElementById('add-existing-wrap');
 const addExistingSession = document.getElementById('add-existing-session');
@@ -588,6 +586,44 @@ async function fetchRemoteServices(host) {
   }
 }
 
+function findService(services, names, labels) {
+  const nameSet = new Set(names.map((name) => name.toLowerCase()));
+  const labelSet = new Set(labels.map((label) => label.toLowerCase()));
+  return services.find((service) => nameSet.has(service.name.toLowerCase()))
+    || services.find((service) => labelSet.has(service.label.toLowerCase()))
+    || null;
+}
+
+async function buildWorkspaceTabs(host) {
+  const snapshot = await fetchRemoteServices(host);
+  const services = snapshot.services || [];
+  const tabFromService = (fallback, names, labels) => {
+    const service = findService(services, names, labels);
+    if (!service) return { ...fallback };
+    return normalizeTab({
+      ...fallback,
+      service: service.name || fallback.service,
+      port: service.port || fallback.port,
+      path: service.path || fallback.path || '/',
+      protocol: service.protocol || fallback.protocol || 'http',
+    });
+  };
+
+  const tabs = [
+    tabFromService({ label: 'Terminal', service: 'terminal', port: 7681 }, ['terminal'], ['Terminal']),
+  ];
+  if (addTabNotes.checked) {
+    tabs.push(tabFromService({ label: 'Notes', service: 'notes', port: 8126, path: '/' }, ['notes'], ['Notes']));
+  }
+  if (addTabSkills.checked) {
+    tabs.push(tabFromService({ label: 'Skills', service: 'skills', port: 8129, path: '/' }, ['skills'], ['Skills']));
+  }
+  if (addTabFiles.checked) {
+    tabs.push(tabFromService({ label: 'Files', service: 'files', port: 8080, path: '/files' }, ['files'], ['Files']));
+  }
+  return normalizePanels(tabs);
+}
+
 function setTerminalSession(profile, session) {
   const terminal = (profile.tabs || profile.panels || []).find((p) => p.label === 'Terminal' || p.service === 'terminal');
   if (!terminal) return;
@@ -1086,12 +1122,6 @@ function updateServerChoiceVisibility() {
   addKnownServerWrap.classList.toggle('hidden', !isNew);
 }
 
-function updatePanelSourceVisibility() {
-  const useProfile = addPanelSource.value === 'profile';
-  addTemplateWrap.classList.toggle('hidden', useProfile);
-  addSourceProfileWrap.classList.toggle('hidden', !useProfile);
-}
-
 function updateWorkspaceTypeVisibility() {
   const isSandbox = addWorkspaceType.value === 'sandbox';
   document.querySelectorAll('.normal-workspace-field').forEach((el) => {
@@ -1121,28 +1151,6 @@ function populateKnownServerOptions(defaultIp) {
 async function populateServerChoices() {
   const current = state.sessions.find((s) => s.name === state.activeSession) || state.sessions[0];
   addServerSelect.innerHTML = '';
-  addTemplateSelect.innerHTML = '';
-  addPanelSource.innerHTML = '';
-  addSourceProfile.innerHTML = '';
-
-  const sourceTemplateOpt = document.createElement('option');
-  sourceTemplateOpt.value = 'template';
-  sourceTemplateOpt.textContent = 'Template';
-  addPanelSource.appendChild(sourceTemplateOpt);
-
-  if (state.sessions.length) {
-    const sourceProfileOpt = document.createElement('option');
-    sourceProfileOpt.value = 'profile';
-    sourceProfileOpt.textContent = 'Existing workspace';
-    addPanelSource.appendChild(sourceProfileOpt);
-  }
-
-  state.templates.forEach((tpl) => {
-    const opt = document.createElement('option');
-    opt.value = tpl.id;
-    opt.textContent = tpl.label;
-    addTemplateSelect.appendChild(opt);
-  });
 
   if (current) {
     const currentHost = sessionMachineHost(current) || current.ip || 'unknown-host';
@@ -1153,17 +1161,6 @@ async function populateServerChoices() {
     currentOpt.textContent = `Active workspace machine: ${displayName(current)} (${currentHost})`;
     currentGroup.appendChild(currentOpt);
     addServerSelect.appendChild(currentGroup);
-  }
-
-  if (state.sessions.length) {
-    state.sessions.forEach((server) => {
-      const resolved = sessionMachineHost(server) || server.ip || 'unknown-host';
-      const text = `${displayName(server)} (${resolved})`;
-      const sourceOpt = document.createElement('option');
-      sourceOpt.value = server.name;
-      sourceOpt.textContent = text;
-      addSourceProfile.appendChild(sourceOpt);
-    });
   }
 
   const machineGroup = document.createElement('optgroup');
@@ -1186,7 +1183,6 @@ async function populateServerChoices() {
     addServerSelect.value = `current:${current.name}`;
     addServerIp.value = host;
     addLabel.value = displayName(current);
-    addSourceProfile.value = current.name;
     populateKnownServerOptions(host);
     await refreshTmuxSessions(host);
     const defaultSession = terminalSessionForSession(current);
@@ -1204,11 +1200,10 @@ async function populateServerChoices() {
     addNewSession.value = 'job1';
   }
 
-  if (addTemplateSelect.options.length) addTemplateSelect.value = addTemplateSelect.options[0].value;
-  addPanelSource.value = 'profile';
-  if (!state.sessions.length) addPanelSource.value = 'template';
   addWorkspaceType.value = 'normal';
-  updatePanelSourceVisibility();
+  addTabNotes.checked = true;
+  addTabSkills.checked = true;
+  addTabFiles.checked = true;
 
   updateServerChoiceVisibility();
   updateSessionSourceVisibility();
@@ -1240,11 +1235,6 @@ async function submitAddModal() {
   }
   const session = selectedTmuxSession();
   const label = (addLabel.value.trim() || 'workspace');
-  const selectedTemplate = state.templates.find((t) => t.id === addTemplateSelect.value) || state.templates[0];
-  const templatePanels = selectedTemplate ? normalizePanels(selectedTemplate.panels) : [];
-  const panelSource = addPanelSource.value || 'profile';
-  const sourceProfile = state.sessions.find((s) => s.name === addSourceProfile.value) || state.sessions[0];
-  const profilePanels = sourceProfile ? normalizePanels(clonePanels(sourceProfile)) : [];
 
   let targetHost;
   let nameSeed = 'workspace';
@@ -1272,6 +1262,7 @@ async function submitAddModal() {
     return;
   }
 
+  const tabs = await buildWorkspaceTabs(targetHost);
   const newProfile = {
     name: makeUniqueName(`${nameSeed}-${label}-${session}`),
     display: label,
@@ -1280,14 +1271,8 @@ async function submitAddModal() {
       host: targetHost,
     },
     ip: targetHost,
-    tabs: panelSource === 'template' ? templatePanels : profilePanels,
+    tabs,
   };
-  if (!newProfile.tabs.length) newProfile.tabs = templatePanels;
-
-  const remotePanels = await fetchMachinePanels(targetHost);
-  if (remotePanels && remotePanels.length) {
-    newProfile.tabs = remotePanels;
-  }
 
   setTerminalSession(newProfile, session);
   newProfile.panels = newProfile.tabs;
@@ -1916,7 +1901,6 @@ async function init() {
       if (server) {
         const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
         addLabel.value = displayName(server);
-        addSourceProfile.value = server.name;
         addServerIp.value = host;
         populateKnownServerOptions(host);
         await refreshTmuxSessions(host);
@@ -1934,8 +1918,6 @@ async function init() {
     }
     updateSessionSourceVisibility();
   });
-
-  addPanelSource.addEventListener('change', updatePanelSourceVisibility);
 
   addKnownServer.addEventListener('change', async () => {
     if (addKnownServer.value) {

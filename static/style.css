@@ -315,6 +315,20 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   font-size: 0.78rem;
   color: #c5ccee;
 }
+.checkbox-stack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: #c5ccee;
+}
+.checkbox-stack label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.checkbox-stack input { accent-color: #6f92e8; }
 #add-actions {
   display: flex;
   justify-content: flex-end;
