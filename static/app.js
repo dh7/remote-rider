@@ -27,6 +27,7 @@ const state = {
 };
 
 const addModal = document.getElementById('add-modal');
+const addWorkspaceType = document.getElementById('add-workspace-type');
 const addServerSelect = document.getElementById('add-server-select');
 const addNewServerWrap = document.getElementById('add-new-server-wrap');
 const addKnownServerWrap = document.getElementById('add-known-server-wrap');
@@ -1091,6 +1092,14 @@ function updatePanelSourceVisibility() {
   addSourceProfileWrap.classList.toggle('hidden', !useProfile);
 }
 
+function updateWorkspaceTypeVisibility() {
+  const isSandbox = addWorkspaceType.value === 'sandbox';
+  document.querySelectorAll('.normal-workspace-field').forEach((el) => {
+    el.classList.toggle('hidden', isSandbox);
+  });
+  document.getElementById('add-submit').textContent = isSandbox ? 'Configure Sandbox' : 'Create Workspace';
+}
+
 function populateKnownServerOptions(defaultIp) {
   addKnownServer.innerHTML = '';
   const manual = document.createElement('option');
@@ -1135,24 +1144,26 @@ async function populateServerChoices() {
     addTemplateSelect.appendChild(opt);
   });
 
+  if (current) {
+    const currentHost = sessionMachineHost(current) || current.ip || 'unknown-host';
+    const currentGroup = document.createElement('optgroup');
+    currentGroup.label = 'Current Machine';
+    const currentOpt = document.createElement('option');
+    currentOpt.value = `current:${current.name}`;
+    currentOpt.textContent = `Active workspace machine: ${displayName(current)} (${currentHost})`;
+    currentGroup.appendChild(currentOpt);
+    addServerSelect.appendChild(currentGroup);
+  }
+
   if (state.sessions.length) {
-    const sessionGroup = document.createElement('optgroup');
-    sessionGroup.label = 'Existing Workspaces';
     state.sessions.forEach((server) => {
       const resolved = sessionMachineHost(server) || server.ip || 'unknown-host';
       const text = `${displayName(server)} (${resolved})`;
-
-      const opt = document.createElement('option');
-      opt.value = `session:${server.name}`;
-      opt.textContent = text;
-      sessionGroup.appendChild(opt);
-
       const sourceOpt = document.createElement('option');
       sourceOpt.value = server.name;
       sourceOpt.textContent = text;
       addSourceProfile.appendChild(sourceOpt);
     });
-    addServerSelect.appendChild(sessionGroup);
   }
 
   const machineGroup = document.createElement('optgroup');
@@ -1167,17 +1178,12 @@ async function populateServerChoices() {
 
   const newOpt = document.createElement('option');
   newOpt.value = '__new__';
-  newOpt.textContent = '+ New machine / workspace';
+  newOpt.textContent = '+ Manual machine';
   addServerSelect.appendChild(newOpt);
-
-  const sandboxOpt = document.createElement('option');
-  sandboxOpt.value = '__sandbox__';
-  sandboxOpt.textContent = '+ Feature sandbox workspace';
-  addServerSelect.appendChild(sandboxOpt);
 
   if (current) {
     const host = sessionMachineHost(current) || current.ip || '127.0.0.1';
-    addServerSelect.value = `session:${current.name}`;
+    addServerSelect.value = `current:${current.name}`;
     addServerIp.value = host;
     addLabel.value = displayName(current);
     addSourceProfile.value = current.name;
@@ -1201,10 +1207,12 @@ async function populateServerChoices() {
   if (addTemplateSelect.options.length) addTemplateSelect.value = addTemplateSelect.options[0].value;
   addPanelSource.value = 'profile';
   if (!state.sessions.length) addPanelSource.value = 'template';
+  addWorkspaceType.value = 'normal';
   updatePanelSourceVisibility();
 
   updateServerChoiceVisibility();
   updateSessionSourceVisibility();
+  updateWorkspaceTypeVisibility();
 }
 
 async function openAddModal() {
@@ -1225,7 +1233,7 @@ function selectedTmuxSession() {
 async function submitAddModal() {
   const selected = addServerSelect.value;
   const isNew = selected === '__new__';
-  if (selected === '__sandbox__') {
+  if (addWorkspaceType.value === 'sandbox') {
     closeAddModal();
     await openSandboxModal();
     return;
@@ -1254,12 +1262,14 @@ async function submitAddModal() {
     if (!knownMachine) return;
     targetHost = knownMachine.ip;
     nameSeed = knownMachine.name;
-  } else {
-    const sessionName = selected.startsWith('session:') ? selected.slice('session:'.length) : selected;
-    const selectedProfile = state.sessions.find((s) => s.name === sessionName);
+  } else if (selected.startsWith('current:')) {
+    const currentName = selected.slice('current:'.length);
+    const selectedProfile = state.sessions.find((s) => s.name === currentName);
     if (!selectedProfile) return;
     targetHost = sessionMachineHost(selectedProfile) || selectedProfile.ip;
-    nameSeed = selectedProfile.name;
+    nameSeed = selectedProfile.machine?.name || selectedProfile.name;
+  } else {
+    return;
   }
 
   const newProfile = {
@@ -1888,13 +1898,10 @@ async function init() {
     renderPanelEditorRows();
   };
 
+  addWorkspaceType.addEventListener('change', updateWorkspaceTypeVisibility);
+
   addServerSelect.addEventListener('change', async () => {
     updateServerChoiceVisibility();
-    if (addServerSelect.value === '__sandbox__') {
-      closeAddModal();
-      await openSandboxModal();
-      return;
-    }
     if (addServerSelect.value === '__new__') {
       const baseServer = state.sessions.find((s) => s.name === state.activeSession) || state.sessions[0];
       const suggestedHost = baseServer ? (sessionMachineHost(baseServer) || baseServer.ip || '') : '';
@@ -1903,8 +1910,8 @@ async function init() {
       populateKnownServerOptions(suggestedHost);
       await refreshTmuxSessions(suggestedHost || '127.0.0.1');
       fillTmuxOptions('1');
-    } else if (addServerSelect.value.startsWith('session:')) {
-      const sessionName = addServerSelect.value.slice('session:'.length);
+    } else if (addServerSelect.value.startsWith('current:')) {
+      const sessionName = addServerSelect.value.slice('current:'.length);
       const server = state.sessions.find((s) => s.name === sessionName);
       if (server) {
         const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
