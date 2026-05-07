@@ -569,6 +569,8 @@ async function fetchRemoteServices(host) {
           embeddable: service.embeddable !== false,
           latency: Number(service.latency_ms || 0),
           error: service.error ? String(service.error) : '',
+          sessionName: service.session_name ? String(service.session_name) : '',
+          project: service.project ? String(service.project) : '',
         })).filter((service) => service.name && service.port > 0)
       : [];
     return {
@@ -604,7 +606,10 @@ function resolveTabEndpoint(server, tab) {
   const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
   const snapshot = serviceSnapshotForServer(server);
   if (tab.service && snapshot && Array.isArray(snapshot.services)) {
-    const match = snapshot.services.find((service) => service.name === tab.service);
+    const candidates = snapshot.services.filter((service) => service.name === tab.service);
+    const match = candidates.find((service) => service.sessionName === server.name)
+      || candidates.find((service) => tab.port && service.port === tab.port)
+      || candidates[0];
     if (match) {
       return {
         host,

@@ -11,7 +11,7 @@
         "label": "Terminal",
         "service": "terminal",
         "port": 7681,
-        "path": "/?arg=slashagent"
+        "path": "/?arg=netochka-slashagent-slashagent"
       },
       {
         "id": "tab-53ftmrm3",
@@ -31,6 +31,15 @@
         "service": "files",
         "port": 8080,
         "path": "/files"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "skills-netochka-slashagent-slashagent",
+        "port": 8131,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
       }
     ],
     "display": "Gerald",
@@ -84,7 +93,7 @@
         "label": "Terminal",
         "service": "terminal",
         "port": 7681,
-        "path": "/?arg=job2"
+        "path": "/?arg=netochka-imgbench_ai-job2"
       },
       {
         "id": "tab-96dj3ysb",
@@ -104,6 +113,15 @@
         "service": "files",
         "port": 8080,
         "path": "/files"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "skills-netochka-imgbench-ai-job2",
+        "port": 8132,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
       }
     ],
     "display": "imgbench.ai",
@@ -121,7 +139,7 @@
         "label": "Terminal",
         "service": "terminal",
         "port": 7681,
-        "path": "/?arg=job1"
+        "path": "/?arg=netochka-image-bench-job1"
       },
       {
         "id": "tab-0ftczoe7",
@@ -141,10 +159,81 @@
         "service": "files",
         "port": 8080,
         "path": "/files"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "skills-netochka-image-bench-job1",
+        "port": 8127,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
       }
     ],
     "display": "image-bench",
     "color": "#00f03c"
+  },
+  {
+    "name": "remote-rider",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-terminal",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=remote-rider",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-monitor",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001,
+        "path": "/",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-logs",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002,
+        "path": "/",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-files",
+        "label": "Files",
+        "service": "files",
+        "port": 8080,
+        "path": "/files",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "skills-remote-rider",
+        "port": 8129,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "notes",
+        "port": 8126,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
+      }
+    ],
+    "display": "Remote Rider",
+    "color": "#2563eb",
+    "active_tab": "tab-notes"
   },
   {
     "name": "remote-rider-ui-polish",
@@ -179,6 +268,15 @@
         "service": "files",
         "port": 8080,
         "path": "/files"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "skills-remote-rider-ui-polish",
+        "port": 8130,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
       }
     ],
     "display": "Remote Rider UI Polish",
@@ -232,7 +330,7 @@
         "label": "Terminal",
         "service": "terminal",
         "port": 7681,
-        "path": "/?arg=skills"
+        "path": "/?arg=netochka-dh7skills-skills"
       },
       {
         "id": "tab-xls8lu8a",
@@ -252,6 +350,15 @@
         "service": "files",
         "port": 8080,
         "path": "/files"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "skills-netochka-dh7skills-skills",
+        "port": 8128,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
       }
     ],
     "display": "dh7skills"

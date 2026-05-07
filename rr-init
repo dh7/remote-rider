@@ -6,7 +6,8 @@ Usage:
   rr-init --control URL                       Register using this control URL
   rr-init --control URL --session NAME        Use a specific session name
   rr-init --host IP                           Override the machine IP reported to control
-  rr-init --tmux-session NAME                 tmux session name for the Terminal tab (default: 1)
+  rr-init --tmux-session NAME                 tmux session name for the Terminal tab (default: session name)
+  rr-init --no-skills                         Do not start/register the Skills tab
   rr-init --force                             Overwrite existing .rr file
 
 The session name defaults to the current directory name.
@@ -16,6 +17,7 @@ Writes .rr with {"control": "...", "session": "..."}.
 import argparse
 import json
 import os
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -57,6 +59,10 @@ def _tabs_from_services(hub_url: str, tmux_session: str) -> list:
         port = svc.get("port")
         if not name or not port or name == "hub":
             continue
+        if name == "skills" or name.startswith("skills-"):
+            # Skills is project-scoped. Do not inherit another project's
+            # running rr-skill service when creating a new session.
+            continue
         if not svc.get("enabled", True):
             continue
         defaults = _SERVICE_DEFAULTS.get(name, {})
@@ -77,8 +83,9 @@ def main():
     parser.add_argument("--session", default=None, help="Session name (default: current directory name)")
     parser.add_argument("--machine", default=None, help="Machine name")
     parser.add_argument("--host", default=None, help="Machine IP/hostname")
-    parser.add_argument("--tmux-session", default="1", dest="tmux_session", help="tmux session for Terminal tab (default: 1)")
+    parser.add_argument("--tmux-session", default=None, dest="tmux_session", help="tmux session for Terminal tab (default: session name)")
     parser.add_argument("--hub", default=None, help="Hub URL for service discovery (default: http://localhost:7000)")
+    parser.add_argument("--no-skills", action="store_true", help="Do not start/register the project Skills tab")
     parser.add_argument("--force", action="store_true", help="Overwrite existing .rr file")
     args = parser.parse_args()
 
@@ -92,6 +99,7 @@ def main():
 
     control_url = (args.control or existing_rr.get("control") or os.environ.get("RR_CONTROL", "")).rstrip("/")
     session_name = args.session or existing_rr.get("session") or Path.cwd().name
+    tmux_session = args.tmux_session or session_name
     hub_url = (args.hub or os.environ.get("RR_HUB", "http://localhost:7000")).rstrip("/")
 
     if not control_url:
@@ -118,7 +126,7 @@ def main():
 
     if not session_exists:
         print(f"Fetching services from hub at {hub_url}…")
-        tabs = _tabs_from_services(hub_url, args.tmux_session)
+        tabs = _tabs_from_services(hub_url, tmux_session)
         if tabs:
             labels = ", ".join(t["label"] for t in tabs)
             print(f"  tabs: {labels}")
@@ -151,12 +159,38 @@ def main():
         current = existing_rr
         if current.get("control") == control_url and current.get("session") == session_name:
             print(".rr already up to date.")
-            sys.exit(0)
-        print("warning: .rr already exists with different values — use --force to overwrite", file=sys.stderr)
-        sys.exit(1)
+        else:
+            print("warning: .rr already exists with different values — use --force to overwrite", file=sys.stderr)
+            sys.exit(1)
+    else:
+        rr_path.write_text(json.dumps(rr_content, indent=2) + "\n")
+        print(f"Wrote .rr  →  control={control_url}  session={session_name}")
 
-    rr_path.write_text(json.dumps(rr_content, indent=2) + "\n")
-    print(f"Wrote .rr  →  control={control_url}  session={session_name}")
+    if not args.no_skills:
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        log_path = log_dir / "rr-skill.log"
+        rr_skill = Path(__file__).resolve().with_name("rr-skill")
+        with log_path.open("ab") as log:
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    str(rr_skill),
+                    "--project",
+                    str(Path.cwd()),
+                    "--control",
+                    control_url,
+                    "--session",
+                    session_name,
+                    "--label",
+                    "Skills",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        print(f"Started Skills tab service; log={log_path}")
 
 
 if __name__ == "__main__":

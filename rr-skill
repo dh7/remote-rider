@@ -186,7 +186,7 @@ def pick_port(start: int) -> int:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                sock.bind(("127.0.0.1", port))
+                sock.bind(("0.0.0.0", port))
             except OSError:
                 port += 1
                 continue
@@ -294,11 +294,18 @@ def post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
         return json.loads(resp.read().decode())
 
 
+def service_name_for_session(session: str) -> str:
+    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in session.strip())
+    collapsed = "-".join(part for part in cleaned.split("-") if part)
+    return f"skills-{collapsed or 'session'}"
+
+
 def register_tab(control: str, session: str, label: str, port: int) -> None:
     host = os.environ.get("PUBLIC_HOST", "")
+    service_name = service_name_for_session(session)
     payload: dict[str, Any] = {
         "label": label,
-        "service": "skills",
+        "service": service_name,
         "port": port,
         "path": "/",
         "protocol": "http",
@@ -313,9 +320,10 @@ def register_tab(control: str, session: str, label: str, port: int) -> None:
 
 def register_local_service(project: Path, session: str, label: str, port: int) -> None:
     registry = Path(__file__).resolve().parent / "service_registry.json"
+    service_name = service_name_for_session(session)
     row = {
         "kind": "web",
-        "name": "skills",
+        "name": service_name,
         "label": label,
         "port": port,
         "pid": os.getpid(),
@@ -331,7 +339,17 @@ def register_local_service(project: Path, session: str, label: str, port: int) -
             rows = []
     except Exception:
         rows = []
-    rows = [r for r in rows if not (isinstance(r, dict) and r.get("pid") == os.getpid())]
+    rows = [
+        r for r in rows
+        if not (
+            isinstance(r, dict)
+            and (
+                r.get("pid") == os.getpid()
+                or (r.get("name") == service_name and r.get("session_name") == session)
+                or (r.get("name") == "skills" and r.get("session_name") == session)
+            )
+        )
+    ]
     rows.append(row)
     registry.write_text(json.dumps(rows, indent=2) + "\n")
 

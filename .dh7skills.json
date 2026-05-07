@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "cloudflare-workers",
+    "notion"
+  ],
+  "agent_dirs": [
+    ".agents/skills",
+    ".claude/skills",
+    ".cursor/skills",
+    ".codex/skills",
+    ".opencode/skills"
+  ]
+}
