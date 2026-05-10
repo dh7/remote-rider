@@ -33,23 +33,38 @@ HTML = r"""<!doctype html>
     body { margin: 0; background: #101216; color: #e7e9ee; font: 14px system-ui, sans-serif; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 12px 14px; border-bottom: 1px solid #2b3038; background: #151920; }
     h1 { font-size: 16px; margin: 0; }
-    main { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr); gap: 14px; padding: 14px; }
+    main { display: grid; gap: 12px; padding: 14px; }
     section { min-width: 0; }
-    h2 { font-size: 13px; color: #aeb6c4; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
+    h2 { font-size: 13px; color: #aeb6c4; text-transform: uppercase; letter-spacing: .04em; margin: 0; }
     .list { display: grid; gap: 8px; }
-    .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid #29303a; border-radius: 7px; background: #171b22; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; min-height: 76px; padding: 10px; border: 1px solid #29303a; border-radius: 7px; background: #171b22; }
+    .name-line { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
     .name { font-weight: 650; }
+    .pill { border: 1px solid #374151; border-radius: 999px; color: #b7c0cd; font-size: 11px; padding: 1px 7px; }
+    .pill.installed { border-color: #2f6f55; color: #9fe0c1; }
+    .pill.external { border-color: #4b5f85; color: #b7c9ee; }
     .desc { color: #aab2bf; font-size: 12px; line-height: 1.35; margin-top: 3px; overflow-wrap: anywhere; }
     .access { color: #e0bd72; font-size: 12px; margin-top: 5px; }
     button { border: 1px solid #3b4656; background: #202837; color: #eef2f8; border-radius: 6px; padding: 6px 9px; cursor: pointer; }
     button:hover { background: #283347; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
     button.danger { border-color: #69404a; background: #3a2027; }
     button.primary { border-color: #2f6f55; background: #1f4738; }
     input { border: 1px solid #3b4656; background: #11151d; color: #eef2f8; border-radius: 6px; padding: 6px 9px; min-width: 190px; }
+    select { border: 1px solid #3b4656; background: #11151d; color: #eef2f8; border-radius: 6px; padding: 6px 9px; }
     .toolbar { display: flex; gap: 8px; align-items: center; }
+    .filters { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto; gap: 8px; align-items: center; }
+    .filters input { width: 100%; min-width: 0; }
+    .summary { color: #9ca5b3; font-size: 12px; text-align: right; white-space: nowrap; }
     .muted { color: #9ca5b3; font-size: 12px; }
     pre { margin: 0; padding: 10px 14px; border-top: 1px solid #2b3038; background: #0c0e12; color: #aab2bf; min-height: 42px; white-space: pre-wrap; }
-    @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) {
+      header { align-items: stretch; flex-direction: column; }
+      .toolbar { flex-wrap: wrap; }
+      .filters { grid-template-columns: 1fr 1fr; }
+      .filters input, .summary { grid-column: 1 / -1; }
+      .summary { text-align: left; }
+    }
   </style>
 </head>
 <body>
@@ -65,13 +80,23 @@ HTML = r"""<!doctype html>
     </div>
   </header>
   <main>
+    <div class="filters">
+      <input id="search" type="search" placeholder="Search skills" autocomplete="off">
+      <select id="source-filter" aria-label="Source">
+        <option value="all">All sources</option>
+        <option value="local">Internal</option>
+        <option value="external">External</option>
+      </select>
+      <select id="state-filter" aria-label="Install state">
+        <option value="all">All states</option>
+        <option value="installed">Installed</option>
+        <option value="not-installed">Not installed</option>
+      </select>
+      <div class="summary" id="summary"></div>
+    </div>
     <section>
-      <h2>Installed</h2>
-      <div id="installed" class="list"></div>
-    </section>
-    <section>
-      <h2>Available</h2>
-      <div id="available" class="list"></div>
+      <h2>Skills</h2>
+      <div id="skills-list" class="list"></div>
     </section>
   </main>
   <pre id="log"></pre>
@@ -84,33 +109,123 @@ HTML = r"""<!doctype html>
       if (s.secrets_required && s.secrets_required.length) parts.push('secrets: ' + s.secrets_required.join(', '));
       return parts.join(' | ');
     };
-    const row = (skill, installed, detail) => {
+    const filters = { search: '', source: 'all', state: 'all' };
+    const row = (item) => {
       const el = document.createElement('div');
       el.className = 'row';
       const info = document.createElement('div');
+      const line = document.createElement('div');
+      line.className = 'name-line';
       const name = document.createElement('div');
       name.className = 'name';
-      name.textContent = skill.name;
+      name.textContent = item.name;
+      line.appendChild(name);
+      const source = document.createElement('span');
+      source.className = `pill ${item.source}`;
+      source.textContent = item.source === 'external' ? 'external' : 'internal';
+      line.appendChild(source);
+      if (item.installed) {
+        const status = document.createElement('span');
+        status.className = 'pill installed';
+        status.textContent = 'installed';
+        line.appendChild(status);
+      }
       const desc = document.createElement('div');
       desc.className = 'desc';
-      desc.textContent = detail ? `${skill.description || ''} ${detail}`.trim() : (skill.description || '');
-      info.appendChild(name);
-      if (skill.description) info.appendChild(desc);
-      const access = accessText(skill);
+      desc.textContent = item.description || '';
+      info.appendChild(line);
+      if (item.description) info.appendChild(desc);
+      const access = accessText(item);
       if (access) {
         const a = document.createElement('div');
         a.className = 'access';
         a.textContent = access;
         info.appendChild(a);
       }
+      if (item.detail) {
+        const detail = document.createElement('div');
+        detail.className = 'muted';
+        detail.textContent = item.detail;
+        info.appendChild(detail);
+      }
       const btn = document.createElement('button');
-      btn.textContent = installed ? 'Remove' : 'Add';
-      btn.className = installed ? 'danger' : 'primary';
-      btn.onclick = () => installed ? removeSkill(skill.name) : addSkill(skill.name);
+      if (item.source === 'external') {
+        btn.textContent = item.installed ? 'Installed' : 'Add';
+        btn.className = item.installed ? '' : 'primary';
+        btn.disabled = item.installed || !item.canInstall;
+        btn.title = item.canInstall ? '' : 'Requires an external agent target';
+        btn.onclick = () => addExternalSkill(item.repo, item.name);
+      } else {
+        btn.textContent = item.installed ? 'Remove' : 'Add';
+        btn.className = item.installed ? 'danger' : 'primary';
+        btn.onclick = () => item.installed ? removeSkill(item.name) : addSkill(item.name);
+      }
       el.appendChild(info);
       el.appendChild(btn);
       return el;
     };
+    const externalKey = (skill) => `${skill.repo}|${skill.name}`;
+    function combinedItems() {
+      const managedNames = new Set(state.installed.manifest.skills || []);
+      const linkedNames = new Set(state.installed.linked || []);
+      const installedNames = new Set([...managedNames, ...linkedNames]);
+      const externalInstalled = new Set((state.installed.external || []).map(externalKey));
+      const canInstallExternal = !!(state.external_skills.supported_agents || []).length;
+      const local = (state.skills.skills || []).map(skill => ({
+        ...skill,
+        source: 'local',
+        installed: installedNames.has(skill.name),
+        detail: installedNames.has(skill.name) && !managedNames.has(skill.name) ? 'linked, not in manifest' : '',
+      }));
+      const external = (state.external_skills.skills || []).map(skill => ({
+        ...skill,
+        source: 'external',
+        installed: externalInstalled.has(externalKey(skill)),
+        canInstall: canInstallExternal,
+        description: skill.description || skill.repo,
+        detail: skill.repo,
+      }));
+      return [...local, ...external].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    function matchesSearch(item, q) {
+      if (!q) return true;
+      const name = (item.name || '').toLowerCase();
+      const desc = (item.description || '').toLowerCase();
+      const repo = (item.repo || '').toLowerCase();
+      return name.includes(q) || desc.includes(q) || repo.includes(q);
+    }
+    function renderList(message) {
+      if (!state) return;
+      const items = combinedItems();
+      const q = filters.search.trim().toLowerCase();
+      const filtered = items.filter(item => {
+        if (filters.source !== 'all' && item.source !== filters.source) return false;
+        if (filters.state === 'installed' && !item.installed) return false;
+        if (filters.state === 'not-installed' && item.installed) return false;
+        return matchesSearch(item, q);
+      }).sort((a, b) => {
+        if (q) {
+          const aStarts = (a.name || '').toLowerCase().startsWith(q) ? 0 : 1;
+          const bStarts = (b.name || '').toLowerCase().startsWith(q) ? 0 : 1;
+          if (aStarts !== bStarts) return aStarts - bStarts;
+        }
+        if (a.installed !== b.installed) return a.installed ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      const list = document.getElementById('skills-list');
+      list.innerHTML = '';
+      for (const item of filtered) list.appendChild(row(item));
+      if (!list.children.length) list.textContent = 'No skills match the current filters.';
+      document.getElementById('summary').textContent = `${filtered.length} of ${items.length}`;
+      const managed = [...new Set(state.installed.manifest.skills || [])].sort();
+      const linked = [...new Set(state.installed.linked || [])].sort();
+      log(message || [
+        `Refreshed ${new Date().toLocaleTimeString()}`,
+        `Managed: ${managed.join(', ') || 'none'}`,
+        `Linked: ${linked.join(', ') || 'none'}`,
+        `External targets: ${(state.external_skills.supported_agents || []).join(', ') || 'none'}`,
+      ].join('\n'));
+    }
     async function api(path, body) {
       const opts = body ? { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body) } : {};
       const resp = await fetch(path, opts);
@@ -122,26 +237,7 @@ HTML = r"""<!doctype html>
       try {
         state = await api('/api/state');
         document.getElementById('project').textContent = state.project;
-        const managedNames = new Set(state.installed.manifest.skills || []);
-        const linkedNames = new Set(state.installed.linked || []);
-        const installedNames = new Set([...managedNames, ...linkedNames]);
-        const installed = document.getElementById('installed');
-        const available = document.getElementById('available');
-        installed.innerHTML = '';
-        available.innerHTML = '';
-        for (const skill of state.skills.skills || []) {
-          const isInstalled = installedNames.has(skill.name);
-          const detail = isInstalled && !managedNames.has(skill.name) ? '(linked, not in manifest)' : '';
-          (isInstalled ? installed : available).appendChild(row(skill, isInstalled, detail));
-        }
-        if (!installed.children.length) installed.textContent = 'No project skills installed.';
-        const managed = [...managedNames].sort();
-        const linked = [...linkedNames].sort();
-        log(message || [
-          `Refreshed ${new Date().toLocaleTimeString()}`,
-          `Managed: ${managed.join(', ') || 'none'}`,
-          `Linked: ${linked.join(', ') || 'none'}`,
-        ].join('\n'));
+        renderList(message);
       } catch (err) {
         log(String(err));
       }
@@ -160,6 +256,13 @@ HTML = r"""<!doctype html>
         await refresh(`Removed ${name}\nRemoved ${result.removed ? result.removed.length : 0} paths`);
       } catch (err) { log(String(err)); }
     }
+    async function addExternalSkill(repo, name) {
+      log(`Adding external ${name} from ${repo}...`);
+      try {
+        const result = await api('/api/add-external', {repo, name});
+        await refresh(`Added external ${name}\nAgents: ${(result.agents || []).join(', ') || 'none'}`);
+      } catch (err) { log(String(err)); }
+    }
     async function syncSkills() {
       log('Syncing...');
       try {
@@ -170,6 +273,18 @@ HTML = r"""<!doctype html>
     function passphraseValue() {
       return document.getElementById('passphrase').value || '';
     }
+    document.getElementById('search').addEventListener('input', (e) => {
+      filters.search = e.target.value || '';
+      renderList('');
+    });
+    document.getElementById('source-filter').addEventListener('change', (e) => {
+      filters.source = e.target.value;
+      renderList('');
+    });
+    document.getElementById('state-filter').addEventListener('change', (e) => {
+      filters.state = e.target.value;
+      renderList('');
+    });
     refresh();
   </script>
 </body>
@@ -274,6 +389,7 @@ class SkillHandler(BaseHTTPRequestHandler):
                 self._json(200, {
                     "project": str(self.project),
                     "skills": run_json([self.dh7skill, "list", "--json"]),
+                    "external_skills": run_json([self.dh7skill, "external-list", "--project", str(self.project), "--json"]),
                     "installed": run_json([self.dh7skill, "installed", "--project", str(self.project), "--json"]),
                     "env": run_json([self.dh7skill, "check-env", "--project", str(self.project), "--json"]),
                 })
@@ -291,6 +407,12 @@ class SkillHandler(BaseHTTPRequestHandler):
                 if not name:
                     raise RuntimeError("name is required")
                 self._json(200, run_json([self.dh7skill, "add", name, "--project", str(self.project), "--json"], passphrase))
+                return
+            if self.path == "/api/add-external":
+                repo = str(body.get("repo", "")).strip()
+                if not repo or not name:
+                    raise RuntimeError("repo and name are required")
+                self._json(200, run_json([self.dh7skill, "add-external", repo, "--skill", name, "--project", str(self.project), "--json"]))
                 return
             if self.path == "/api/remove":
                 if not name:
