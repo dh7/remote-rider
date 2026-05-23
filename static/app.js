@@ -24,6 +24,7 @@ const state = {
   serviceSnapshotByHost: {},
   controlSessionsAvailable: false,
   controlSessionsSignature: '',
+  pendingDeletedSessions: new Set(),
 };
 
 const addModal = document.getElementById('add-modal');
@@ -121,11 +122,32 @@ async function loadControlContext() {
 async function flushSessionsToControl() {
   if (!state.controlSessionsAvailable) return;
   try {
+    const latest = await loadSessionsFromControl();
+    if (latest === null) return;
+    let sessionsToSave = state.sessions;
+    if (Array.isArray(latest)) {
+      const localByName = new Map(state.sessions.map((session) => [session.name, session]));
+      const merged = [];
+      const seen = new Set();
+      latest.forEach((remoteSession) => {
+        if (!remoteSession || !remoteSession.name || state.pendingDeletedSessions.has(remoteSession.name)) return;
+        merged.push(localByName.get(remoteSession.name) || remoteSession);
+        seen.add(remoteSession.name);
+      });
+      state.sessions.forEach((localSession) => {
+        if (!localSession || !localSession.name || seen.has(localSession.name)) return;
+        if (state.pendingDeletedSessions.has(localSession.name)) return;
+        merged.push(localSession);
+      });
+      sessionsToSave = merged;
+    }
     await fetch('/sessions', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessions: state.sessions }),
+      body: JSON.stringify({ sessions: sessionsToSave }),
     });
+    state.sessions = sessionsToSave;
+    state.pendingDeletedSessions.clear();
     state.controlSessionsSignature = JSON.stringify(state.sessions);
   } catch (_) {}
 }
@@ -800,6 +822,7 @@ async function reloadSessions(preferredName) {
 
 async function deleteSession(server) {
   if (!confirm(`Delete workspace "${displayName(server)}"?`)) return;
+  state.pendingDeletedSessions.add(server.name);
   state.sessions = state.sessions.filter((s) => s.name !== server.name);
   saveProfiles();
   const fallback = state.activeSession === server.name ? null : state.activeSession;
@@ -831,6 +854,7 @@ async function deleteSessionAndKill(server) {
   }
 
   state.sessions = state.sessions.filter((s) => s.name !== server.name);
+  state.pendingDeletedSessions.add(server.name);
   saveProfiles();
   const fallback = state.activeSession === server.name ? null : state.activeSession;
   reloadSessions(fallback);

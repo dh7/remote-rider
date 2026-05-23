@@ -21,7 +21,7 @@ import subprocess
 import sys
 import urllib.request
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 
 def _get(url: str) -> dict:
@@ -84,7 +84,7 @@ def main():
     parser.add_argument("--machine", default=None, help="Machine name")
     parser.add_argument("--host", default=None, help="Machine IP/hostname")
     parser.add_argument("--tmux-session", default=None, dest="tmux_session", help="tmux session for Terminal tab (default: session name)")
-    parser.add_argument("--hub", default=None, help="Hub URL for service discovery (default: http://localhost:7000)")
+    parser.add_argument("--hub", default=None, help="Hub URL for service discovery (default: control URL)")
     parser.add_argument("--no-skills", action="store_true", help="Do not start/register the project Skills tab")
     parser.add_argument("--force", action="store_true", help="Overwrite existing .rr file")
     args = parser.parse_args()
@@ -100,7 +100,7 @@ def main():
     control_url = (args.control or existing_rr.get("control") or os.environ.get("RR_CONTROL", "")).rstrip("/")
     session_name = args.session or existing_rr.get("session") or Path.cwd().name
     tmux_session = args.tmux_session or session_name
-    hub_url = (args.hub or os.environ.get("RR_HUB", "http://localhost:7000")).rstrip("/")
+    hub_url = (args.hub or os.environ.get("RR_HUB") or control_url).rstrip("/")
 
     if not control_url:
         print("error: --control URL is required", file=sys.stderr)
@@ -108,7 +108,7 @@ def main():
         sys.exit(1)
 
     machine_name = args.machine or session_name
-    machine_host = args.host or os.environ.get("PUBLIC_HOST", "127.0.0.1")
+    machine_host = args.host or os.environ.get("PUBLIC_HOST") or urlparse(control_url).hostname or "127.0.0.1"
 
     # Check if session already exists
     session_exists = False
