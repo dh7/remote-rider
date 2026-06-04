@@ -449,24 +449,6 @@ function sessionMachineHost(server) {
   return host || mapped || '';
 }
 
-async function probePanelStatus(server, tab, endpoint) {
-  const host = endpoint?.host || sessionMachineHost(server) || server.ip || '127.0.0.1';
-  const port = endpoint?.port || tab.port;
-  if (!port) return { up: false, latency: 0, error: 'missing port', host };
-  const query = new URLSearchParams({ host, port: String(port), timeout_ms: '650' }).toString();
-  try {
-    const payload = await fetch(`/panel/status?${query}`).then((r) => r.json());
-    return {
-      up: Boolean(payload.up),
-      latency: Number(payload.latency_ms || 0),
-      error: payload.error ? String(payload.error) : '',
-      host,
-    };
-  } catch (err) {
-    return { up: false, latency: 0, error: String(err.message || err), host };
-  }
-}
-
 function hslToHex(h, s, l) {
   s /= 100; l /= 100;
   const a = s * Math.min(l, 1 - l);
@@ -1574,12 +1556,8 @@ async function renderTabs(server, refreshLive = true) {
     const frameId = frame.id;
     const btn = document.createElement('button');
     btn.className = 'tab-btn';
-    const dot = document.createElement('span');
-    dot.className = 'tab-dot unknown';
-    dot.title = 'Checking panel health...';
     const text = document.createElement('span');
     text.textContent = panel.label;
-    btn.appendChild(dot);
     btn.appendChild(text);
     const isTerminal = (panel.service === 'terminal' || panel.label.toLowerCase() === 'terminal');
     if (!isTerminal) {
@@ -1601,16 +1579,6 @@ async function renderTabs(server, refreshLive = true) {
       activateFrame(frameId);
     };
     tabs.appendChild(btn);
-
-    probePanelStatus(server, panel, endpoint).then((status) => {
-      dot.classList.remove('unknown', 'up', 'down');
-      dot.classList.add(status.up ? 'up' : 'down');
-      if (status.up) {
-        dot.title = `${panel.label} up on ${status.host}:${endpoint?.port || panel.port} (${status.latency}ms)`;
-      } else {
-        dot.title = `${panel.label} down on ${status.host}:${endpoint?.port || panel.port}${status.error ? ` (${status.error})` : ''}`;
-      }
-    });
 
     if ((savedLabel && savedLabel === (panel.id || panel.label)) || (!savedLabel && i === 0)) {
       selectedFrameId = frameId;

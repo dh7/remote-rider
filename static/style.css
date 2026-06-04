@@ -256,16 +256,6 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
 }
 .tab-btn.active { background: #2a2a5a; color: #fff; border-color: #66f; }
 .tab-btn:hover { background: #1a1a3a; }
-.tab-dot {
-  width: 0.48rem;
-  height: 0.48rem;
-  border-radius: 50%;
-  display: inline-block;
-  border: 1px solid rgba(0, 0, 0, 0.45);
-}
-.tab-dot.unknown { background: #7d85a4; }
-.tab-dot.up { background: #5bc16f; }
-.tab-dot.down { background: #d35d5d; }
 
 #add-modal {
   position: fixed;
