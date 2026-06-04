@@ -615,6 +615,15 @@ function findService(services, names, labels) {
     || null;
 }
 
+function isLegacyWorkspaceToolService(service) {
+  const name = String(service?.name || '').toLowerCase();
+  const label = String(service?.label || '').toLowerCase();
+  if (label === 'notes' || label === 'skills') return true;
+  if (name.startsWith('notes-') || name.startsWith('skills-')) return true;
+  if (name.startsWith('files-')) return true;
+  return false;
+}
+
 const DEFAULT_WORKSPACE_TABS = [
   { key: 'terminal', label: 'Terminal', service: 'terminal', port: 7681, path: '/', checked: true, required: true },
   { key: 'notes', label: 'Notes', service: 'builtin', port: 7000, builtin: 'notes', checked: true },
@@ -653,6 +662,7 @@ function renderWorkspaceTabOptions(workspaceName, services = []) {
 
   services
     .filter((service) => service.embeddable !== false)
+    .filter((service) => !isLegacyWorkspaceToolService(service))
     .forEach((service) => {
       const name = String(service.name || '').toLowerCase();
       const label = String(service.label || '').toLowerCase();
@@ -956,8 +966,9 @@ function applyDiscoveredServiceToEditor(service) {
 
 function renderDiscoveredServices() {
   panelServices.innerHTML = '';
+  const visibleServices = state.discoveredServices.filter((service) => !isLegacyWorkspaceToolService(service));
 
-  if (!state.discoveredServices.length) {
+  if (!visibleServices.length) {
     const empty = document.createElement('div');
     empty.className = 'muted-note';
     empty.textContent = 'No services discovered yet.';
@@ -965,7 +976,7 @@ function renderDiscoveredServices() {
     return;
   }
 
-  state.discoveredServices.forEach((service) => {
+  visibleServices.forEach((service) => {
     const row = document.createElement('div');
     row.className = 'service-row';
 
@@ -1028,9 +1039,10 @@ async function refreshDiscoveredServices() {
   const result = await fetchRemoteServices(host);
   state.serviceSnapshotByHost[host] = result;
   state.discoveredServices = result.services.map((service) => ({ ...service, host: result.host || host }));
+  const visibleCount = state.discoveredServices.filter((service) => !isLegacyWorkspaceToolService(service)).length;
   panelServicesNote.textContent = result.error
     ? `Service discovery failed on ${result.host}: ${result.error}`
-    : `Discovered ${state.discoveredServices.length} service${state.discoveredServices.length === 1 ? '' : 's'} on ${result.host}.`;
+    : `Discovered ${visibleCount} service${visibleCount === 1 ? '' : 's'} on ${result.host}.`;
   renderDiscoveredServices();
 }
 

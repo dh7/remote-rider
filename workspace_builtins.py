@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 from importlib.machinery import SourceFileLoader
 from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote
+from urllib.request import urlopen
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -38,9 +40,21 @@ def _workspace(session_name: str) -> dict[str, Any]:
     with SESSIONS_LOCK:
         sessions = _load_normalized_control_sessions()
     session = next((row for row in sessions if row.get("name") == session_name), None)
-    if not session:
-        raise HTTPException(status_code=404, detail="workspace not found")
-    return session
+    if session:
+        return session
+
+    control_url = os.getenv("RR_CONTROL", "").rstrip("/")
+    if control_url:
+        try:
+            with urlopen(f"{control_url}/sessions/{quote(session_name, safe='')}", timeout=3) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            remote_session = payload.get("session") if isinstance(payload, dict) else None
+            if isinstance(remote_session, dict):
+                return remote_session
+        except Exception:
+            pass
+
+    raise HTTPException(status_code=404, detail="workspace not found")
 
 
 def _project_for(session_name: str) -> Path:

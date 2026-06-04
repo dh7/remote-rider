@@ -166,6 +166,7 @@ export TERM_PORT MONITOR_PORT LOGS_PORT FILES_PORT
 export HUB_PORT
 export BIND_HOST="$HOST"
 export PUBLIC_HOST="$HOST"
+export RR_CONTROL="${RR_CONTROL:-http://100.119.43.10:7000}"
 export RUN_MODE="$HUB_MODE"
 
 if [[ -n "$TTYD_BIN" ]]; then
