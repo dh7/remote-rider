@@ -132,6 +132,9 @@ def _normalize_control_session(payload: dict[str, Any]) -> dict[str, Any] | None
     }
     if display:
         session["display"] = display
+    project = str(payload.get("project") or payload.get("root_path") or "").strip()
+    if project:
+        session["project"] = project
     color = str(payload.get("color", "")).strip()
     if color:
         session["color"] = color

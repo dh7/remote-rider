@@ -2,11 +2,11 @@
 
 ## Current Focus
 
-Polish Remote Rider helper installation and UI chrome.
+Consolidate standard workspace tabs into the Remote Rider machine hub.
 
 ## Last Updated
 
-2026-05-07 Europe/Paris
+2026-06-04 Europe/Paris
 
 ## What Changed
 
@@ -28,11 +28,17 @@ Polish Remote Rider helper installation and UI chrome.
 - Removed the small tmux session summary text below the terminal session selector.
 - Added `install.sh` to link `rr-*` helper commands into `~/.local/bin` and ran it locally, fixing `rr-init: command not found` from other repos on this machine.
 - Matched the left workspace panel background color to the tab panel background color.
+- Added hub-hosted built-in routes for workspace Notes, Skills, and Files.
+- Updated Add Workspace so the default Notes, Skills, and Files checkboxes create built-in `/workspaces/{workspace}/...` tabs.
+- Added a Project Path field to Add Workspace and preserved workspace `project` in the control-side store.
+- Updated `rr-init` so new projects create Terminal plus built-in Notes, Skills, and Files tabs, without launching `rr-skill`.
+- Migrated local netochka workspaces with known project paths to built-in standard tabs.
 
 ## Current State
 
-- `rr-notes` is running on netochka at `http://127.0.0.1:8126`.
-- The Remote Rider `remote-rider` session has a `Notes` tab.
+- The standard Notes, Skills, and Files views are now served by the hub under `/workspaces/{workspace}/notes`, `/skills`, and `/files`.
+- Existing remote-machine workspaces still keep their old Files/Skills/Notes tabs until those machines pull/restart the updated hub.
+- The Remote Rider `remote-rider` session has built-in Notes, Skills, and Files tabs on netochka.
 - `TODO.md` now exists locally.
 - Workspace naming is implemented.
 - Workspace card gradient cleanup is skipped for now because the visible UI still has a gradient.
@@ -47,10 +53,10 @@ Polish Remote Rider helper installation and UI chrome.
 
 - Decide whether Sandbox Workspace should fully live inside Add Workspace or keep using the existing sandbox modal.
 - Decide whether `/workspaces` API aliases are worth adding now or later.
+- Pull/restart remote machine hubs before migrating their existing standard tabs to built-ins.
 
 ## Open Questions
 
-- Should `rr-init` start `rr-notes` automatically alongside `rr-skill`?
 - Should `STATUS.md` be committed per project by default, or treated as local session state?
 - Should the backend expose `/workspaces` aliases while keeping `/sessions` for compatibility?
 - Should Add Workspace default to the active machine, a new machine, or an explicit "choose machine" empty state?

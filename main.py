@@ -104,9 +104,11 @@ from updates import (
     _schedule_remote_update_local,
     _schedule_remote_update_proxy,
 )
+from workspace_builtins import router as workspace_builtins_router
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
+app.include_router(workspace_builtins_router)
 
 
 # ── Remote machine proxy ──────────────────────────────────────────────────────

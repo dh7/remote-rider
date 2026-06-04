@@ -7,17 +7,15 @@ Usage:
   rr-init --control URL --session NAME        Use a specific session name
   rr-init --host IP                           Override the machine IP reported to control
   rr-init --tmux-session NAME                 tmux session name for the Terminal tab (default: session name)
-  rr-init --no-skills                         Do not start/register the Skills tab
   rr-init --force                             Overwrite existing .rr file
 
 The session name defaults to the current directory name.
-Tabs are populated from the local hub's running services automatically.
-Writes .rr with {"control": "...", "session": "..."}.
+Tabs use built-in hub routes for Files, Skills, and Notes.
+Writes .rr with {"control": "...", "session": "...", "project": "..."}.
 """
 import argparse
 import json
 import os
-import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -37,43 +35,16 @@ def _put(url: str, payload: dict) -> dict:
         return json.loads(resp.read())
 
 
-_SERVICE_DEFAULTS = {
-    "terminal": {"label": "Terminal", "path": "/", "protocol": "http"},
-    "monitor":  {"label": "Monitor",  "path": "/", "protocol": "http"},
-    "logs":     {"label": "Logs",     "path": "/", "protocol": "http"},
-    "files":    {"label": "Files",    "path": "/files", "protocol": "http"},
-}
-
-
-def _tabs_from_services(hub_url: str, tmux_session: str) -> list:
-    try:
-        data = _get(f"{hub_url}/services")
-        services = data.get("services", [])
-    except Exception as exc:
-        print(f"  warning: could not fetch services from hub: {exc}", file=sys.stderr)
-        return []
-
-    tabs = []
-    for svc in services:
-        name = str(svc.get("name", ""))
-        port = svc.get("port")
-        if not name or not port or name == "hub":
-            continue
-        if name == "skills" or name.startswith("skills-"):
-            # Skills is project-scoped. Do not inherit another project's
-            # running rr-skill service when creating a new session.
-            continue
-        if not svc.get("enabled", True):
-            continue
-        defaults = _SERVICE_DEFAULTS.get(name, {})
-        label = defaults.get("label") or svc.get("label") or name.capitalize()
-        path = defaults.get("path") or svc.get("path") or "/"
-        protocol = defaults.get("protocol") or svc.get("protocol") or "http"
-        tab: dict = {"label": label, "service": name, "port": port, "path": path, "protocol": protocol}
-        if name == "terminal" and tmux_session and tmux_session != "1":
-            tab["path"] = f"/?arg={quote(tmux_session, safe='')}"
-        tabs.append(tab)
-
+def _builtin_tabs(session_name: str, tmux_session: str, hub_url: str) -> list:
+    hub_port = urlparse(hub_url).port or 7000
+    tabs = [
+        {"label": "Terminal", "service": "terminal", "port": 7681, "path": "/", "protocol": "http"},
+        {"label": "Notes", "service": "builtin", "port": hub_port, "path": f"/workspaces/{quote(session_name, safe='')}/notes", "protocol": "http"},
+        {"label": "Skills", "service": "builtin", "port": hub_port, "path": f"/workspaces/{quote(session_name, safe='')}/skills", "protocol": "http"},
+        {"label": "Files", "service": "builtin", "port": hub_port, "path": f"/workspaces/{quote(session_name, safe='')}/files", "protocol": "http"},
+    ]
+    if tmux_session and tmux_session != "1":
+        tabs[0]["path"] = f"/?arg={quote(tmux_session, safe='')}"
     return tabs
 
 
@@ -85,7 +56,7 @@ def main():
     parser.add_argument("--host", default=None, help="Machine IP/hostname")
     parser.add_argument("--tmux-session", default=None, dest="tmux_session", help="tmux session for Terminal tab (default: session name)")
     parser.add_argument("--hub", default=None, help="Hub URL for service discovery (default: control URL)")
-    parser.add_argument("--no-skills", action="store_true", help="Do not start/register the project Skills tab")
+    parser.add_argument("--no-skills", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--force", action="store_true", help="Overwrite existing .rr file")
     args = parser.parse_args()
 
@@ -125,13 +96,9 @@ def main():
         sys.exit(1)
 
     if not session_exists:
-        print(f"Fetching services from hub at {hub_url}…")
-        tabs = _tabs_from_services(hub_url, tmux_session)
-        if tabs:
-            labels = ", ".join(t["label"] for t in tabs)
-            print(f"  tabs: {labels}")
-        else:
-            print("  no services found — session will have no tabs (add them via setup modal)")
+        tabs = _builtin_tabs(session_name, tmux_session, hub_url)
+        labels = ", ".join(t["label"] for t in tabs)
+        print(f"  tabs: {labels}")
 
         print(f"Creating session '{session_name}'…")
         try:
@@ -144,6 +111,7 @@ def main():
         sessions.append({
             "name": session_name,
             "machine": {"name": machine_name, "host": machine_host},
+            "project": str(Path.cwd().resolve()),
             "tabs": tabs,
         })
         try:
@@ -154,10 +122,14 @@ def main():
             sys.exit(1)
 
     # Write .rr
-    rr_content = {"control": control_url, "session": session_name}
+    rr_content = {"control": control_url, "session": session_name, "project": str(Path.cwd().resolve())}
     if rr_path.exists() and not args.force:
         current = existing_rr
-        if current.get("control") == control_url and current.get("session") == session_name:
+        if (
+            current.get("control") == control_url
+            and current.get("session") == session_name
+            and current.get("project") == str(Path.cwd().resolve())
+        ):
             print(".rr already up to date.")
         else:
             print("warning: .rr already exists with different values — use --force to overwrite", file=sys.stderr)
@@ -165,32 +137,7 @@ def main():
     else:
         rr_path.write_text(json.dumps(rr_content, indent=2) + "\n")
         print(f"Wrote .rr  →  control={control_url}  session={session_name}")
-
-    if not args.no_skills:
-        log_dir = Path("logs")
-        log_dir.mkdir(exist_ok=True)
-        log_path = log_dir / "rr-skill.log"
-        rr_skill = Path(__file__).resolve().with_name("rr-skill")
-        with log_path.open("ab") as log:
-            subprocess.Popen(
-                [
-                    sys.executable,
-                    str(rr_skill),
-                    "--project",
-                    str(Path.cwd()),
-                    "--control",
-                    control_url,
-                    "--session",
-                    session_name,
-                    "--label",
-                    "Skills",
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-        print(f"Started Skills tab service; log={log_path}")
+    print("Built-in Files/Skills/Notes are served by the Remote Rider hub.")
 
 
 if __name__ == "__main__":

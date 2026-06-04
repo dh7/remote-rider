@@ -70,28 +70,37 @@ Each repo or working directory can contain a `.rr` file with two things only:
 
 If a tool needs anything beyond that it calls the control API. The `.rr` file is intentionally minimal — it is a pointer, not a configuration store.
 
+## Built-In Workspace Tabs
+
+The machine hub serves the standard workspace tabs directly:
+
+- `/workspaces/{workspace}/notes` — `Agents.md`, `TODO.md`, and `STATUS.md`.
+- `/workspaces/{workspace}/skills` — project-scoped dh7skill management.
+- `/workspaces/{workspace}/files` — project file browser/editor.
+
+These tabs do not require a separate `rr-files`, `rr-skill`, or `rr-notes` process per workspace.
+They are routed through the one hub running on the workspace machine and use the workspace
+`project` path stored in `sessions.json`.
+
 ## CLI Tool Pattern (`rr-*`)
 
-`remote-rider` ships a collection of small CLI tools that follow a "less is more" philosophy:
-each tool does one thing, but unlike a plain shell script it can surface a UI tab in the control plane.
+`rr-init` writes `.rr`, creates or updates the control-side workspace, stores the project path,
+and adds Terminal plus built-in Notes, Skills, and Files tabs.
 
-Design rules:
+Other `rr-*` tools may still expose ad hoc tabs in the control plane:
 - Read `.rr` to find control URL + workspace/session name.
-- Start a local service on a free port.
+- Start a local service on a free port only when the tab needs custom runtime.
 - Call `POST /sessions/{session}/tabs` on the control plane to register a tab.
-- Use a **descriptive label** (e.g. `Files: /data/results`, `Preview: feature/xyz`) — label is the tab identity within a session. Same label = update existing tab. Different label = new tab.
+- Use a **descriptive label** (e.g. `Preview: feature/xyz`) — label is the tab identity within a session. Same label = update existing tab. Different label = new tab.
 - On exit or on receiving a kill signal, call `DELETE /sessions/{session}/tabs` to remove the tab.
 
 Examples:
-- `rr-files /path` — starts a file browser for that path, adds a Files tab
-- `rr-files /path/a` + `rr-files /path/b` — two separate file tabs in the same workspace
-- `rr-skill` — starts a Skills tab that manages project-scoped dh7skills access
-- `rr-notes` — starts a Notes tab for `Agents.md`, `TODO.md`, and `STATUS.md`
+- `rr-init --control http://100.119.43.10:7000` — creates a workspace for the current project with built-in tabs.
 - Agents can do the same: spawn any small HTTP server, register it as a tab, expose it to the operator
 
 ## Project Notes & Status
 
-`rr-notes` exposes the project handoff surface in a Remote Rider tab:
+The built-in Notes view exposes the project handoff surface in a Remote Rider tab:
 
 - `Agents.md` / `AGENTS.md` / `CLAUDE.md` — durable project intent and agent rules.
 - `TODO.md` — shared project work queue. The Notes UI can create it when missing.
@@ -104,7 +113,7 @@ Agents should update `STATUS.md` from time to time during meaningful work, espec
 `remote-rider` does not own skill installation logic. The split is:
 
 - `dh7skills` owns the canonical `dh7skill` CLI, skill discovery, project manifests, symlinks, env vars, and secrets.
-- `remote-rider` owns the `rr-skill` adapter: an HTML/API server that reads `.rr`, registers a Skills tab, and shells out to `dh7skill`.
+- `remote-rider` owns the built-in Skills tab: hub routes that shell out to `dh7skill` for the workspace project.
 
 This keeps `dh7skills` usable without Remote Rider while letting every Remote Rider workspace get a UI for adding/removing project skills.
 

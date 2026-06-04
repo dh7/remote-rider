@@ -34,6 +34,7 @@ const addNewServerWrap = document.getElementById('add-new-server-wrap');
 const addKnownServerWrap = document.getElementById('add-known-server-wrap');
 const addKnownServer = document.getElementById('add-known-server');
 const addServerIp = document.getElementById('add-server-ip');
+const addProjectPath = document.getElementById('add-project-path');
 const addTabOptions = document.getElementById('add-tab-options');
 const addLabel = document.getElementById('add-label');
 const addExistingWrap = document.getElementById('add-existing-wrap');
@@ -347,6 +348,7 @@ function normalizeProfile(raw) {
       host,
     },
     ip: host,
+    project: raw.project ? String(raw.project) : undefined,
     tabs,
     panels: tabs,
   };
@@ -615,9 +617,9 @@ function findService(services, names, labels) {
 
 const DEFAULT_WORKSPACE_TABS = [
   { key: 'terminal', label: 'Terminal', service: 'terminal', port: 7681, path: '/', checked: true, required: true },
-  { key: 'notes', label: 'Notes', service: 'notes', port: 8126, path: '/', checked: true },
-  { key: 'skills', label: 'Skills', service: 'skills', port: 8129, path: '/', checked: true },
-  { key: 'files', label: 'Files', service: 'files', port: 8080, path: '/files', checked: true },
+  { key: 'notes', label: 'Notes', service: 'builtin', port: 7000, builtin: 'notes', checked: true },
+  { key: 'skills', label: 'Skills', service: 'builtin', port: 7000, builtin: 'skills', checked: true },
+  { key: 'files', label: 'Files', service: 'builtin', port: 7000, builtin: 'files', checked: true },
 ];
 
 function tabChoiceFromService(service, fallback = {}) {
@@ -633,14 +635,20 @@ function tabChoiceFromService(service, fallback = {}) {
   };
 }
 
-function renderWorkspaceTabOptions(services = []) {
+function builtinPath(workspaceName, kind) {
+  return `/workspaces/${encodeURIComponent(workspaceName)}/${kind}`;
+}
+
+function renderWorkspaceTabOptions(workspaceName, services = []) {
   addTabOptions.innerHTML = '';
   const used = new Set();
   const choices = DEFAULT_WORKSPACE_TABS.map((fallback) => {
-    const service = findService(services, [fallback.service], [fallback.label]);
+    const service = fallback.builtin ? null : findService(services, [fallback.service], [fallback.label]);
     used.add(String(fallback.service).toLowerCase());
     used.add(String(fallback.label).toLowerCase());
-    return service ? tabChoiceFromService(service, fallback) : { ...fallback, protocol: 'http' };
+    const choice = service ? tabChoiceFromService(service, fallback) : { ...fallback, protocol: 'http' };
+    if (fallback.builtin) choice.path = builtinPath(workspaceName, fallback.builtin);
+    return choice;
   });
 
   services
@@ -665,6 +673,7 @@ function renderWorkspaceTabOptions(services = []) {
     input.dataset.port = String(choice.port || 0);
     input.dataset.path = choice.path || '/';
     input.dataset.protocol = choice.protocol || 'http';
+    if (choice.builtin) input.dataset.builtin = choice.builtin;
     label.appendChild(input);
     label.appendChild(document.createTextNode(choice.label));
     addTabOptions.appendChild(label);
@@ -672,19 +681,21 @@ function renderWorkspaceTabOptions(services = []) {
 }
 
 async function refreshWorkspaceTabOptions(host) {
-  renderWorkspaceTabOptions();
+  const workspaceName = proposedWorkspaceName();
+  renderWorkspaceTabOptions(workspaceName);
   const snapshot = await fetchRemoteServices(host);
-  renderWorkspaceTabOptions(snapshot.services || []);
+  renderWorkspaceTabOptions(workspaceName, snapshot.services || []);
 }
 
 function buildWorkspaceTabs() {
+  const workspaceName = proposedWorkspaceName();
   const tabs = Array.from(addTabOptions.querySelectorAll('input[type="checkbox"]'))
     .filter((input) => input.checked || input.disabled)
     .map((input) => normalizeTab({
       label: input.dataset.label,
       service: input.dataset.service,
       port: Number(input.dataset.port || 0),
-      path: input.dataset.path || '/',
+      path: input.dataset.builtin ? builtinPath(workspaceName, input.dataset.builtin) : (input.dataset.path || '/'),
       protocol: input.dataset.protocol || 'http',
     }))
     .filter(Boolean);
@@ -1247,6 +1258,7 @@ async function populateServerChoices() {
     addServerSelect.value = `current:${current.name}`;
     addServerIp.value = host;
     addLabel.value = displayName(current);
+    addProjectPath.value = current.project || `/home/dh/code/${displayName(current)}`;
     populateKnownServerOptions(host);
     await refreshTmuxSessions(host);
     await refreshWorkspaceTabOptions(host);
@@ -1259,6 +1271,7 @@ async function populateServerChoices() {
     addServerSelect.value = defaultMachine ? `machine:${defaultMachine.name}` : '__new__';
     addServerIp.value = defaultMachine ? defaultMachine.ip : '';
     addLabel.value = defaultMachine ? defaultMachine.name : '';
+    addProjectPath.value = `/home/dh/code/${addLabel.value || 'project'}`;
     populateKnownServerOptions(defaultMachine ? defaultMachine.ip : '');
     await refreshTmuxSessions(defaultMachine ? defaultMachine.ip : '127.0.0.1');
     await refreshWorkspaceTabOptions(defaultMachine ? defaultMachine.ip : '127.0.0.1');
@@ -1288,6 +1301,30 @@ function selectedTmuxSession() {
   return sanitizeSessionName(raw);
 }
 
+function selectedMachineNameSeed() {
+  const selected = addServerSelect.value;
+  const isNew = selected === '__new__';
+  const label = (addLabel.value.trim() || 'workspace');
+  if (isNew) return label;
+  if (selected.startsWith('machine:')) {
+    const machineName = selected.slice('machine:'.length);
+    const knownMachine = HOMELAB_SERVERS.find((s) => s.name === machineName);
+    return knownMachine ? knownMachine.name : 'workspace';
+  }
+  if (selected.startsWith('current:')) {
+    const currentName = selected.slice('current:'.length);
+    const selectedProfile = state.sessions.find((s) => s.name === currentName);
+    return selectedProfile ? (selectedProfile.machine?.name || selectedProfile.name) : 'workspace';
+  }
+  return 'workspace';
+}
+
+function proposedWorkspaceName() {
+  const session = selectedTmuxSession();
+  const label = (addLabel.value.trim() || 'workspace');
+  return makeUniqueName(`${selectedMachineNameSeed()}-${label}-${session}`);
+}
+
 async function submitAddModal() {
   const selected = addServerSelect.value;
   const isNew = selected === '__new__';
@@ -1298,9 +1335,10 @@ async function submitAddModal() {
   }
   const session = selectedTmuxSession();
   const label = (addLabel.value.trim() || 'workspace');
+  const workspaceName = proposedWorkspaceName();
 
   let targetHost;
-  let nameSeed = 'workspace';
+  let nameSeed = selectedMachineNameSeed();
 
   if (isNew) {
     targetHost = addServerIp.value.trim();
@@ -1308,32 +1346,30 @@ async function submitAddModal() {
       alert('Please set the server IP/host.');
       return;
     }
-    nameSeed = label;
   } else if (selected.startsWith('machine:')) {
     const machineName = selected.slice('machine:'.length);
     const knownMachine = HOMELAB_SERVERS.find((s) => s.name === machineName);
     if (!knownMachine) return;
     targetHost = knownMachine.ip;
-    nameSeed = knownMachine.name;
   } else if (selected.startsWith('current:')) {
     const currentName = selected.slice('current:'.length);
     const selectedProfile = state.sessions.find((s) => s.name === currentName);
     if (!selectedProfile) return;
     targetHost = sessionMachineHost(selectedProfile) || selectedProfile.ip;
-    nameSeed = selectedProfile.machine?.name || selectedProfile.name;
   } else {
     return;
   }
 
   const tabs = buildWorkspaceTabs();
   const newProfile = {
-    name: makeUniqueName(`${nameSeed}-${label}-${session}`),
+    name: workspaceName,
     display: label,
     machine: {
       name: isNew ? label : nameSeed,
       host: targetHost,
     },
     ip: targetHost,
+    project: addProjectPath.value.trim() || undefined,
     tabs,
   };
 
@@ -1955,6 +1991,7 @@ async function init() {
       const suggestedHost = baseServer ? (sessionMachineHost(baseServer) || baseServer.ip || '') : '';
       addServerIp.value = suggestedHost;
       if (!addLabel.value.trim()) addLabel.value = baseServer ? displayName(baseServer) : '';
+      addProjectPath.value = baseServer?.project || `/home/dh/code/${addLabel.value.trim() || 'project'}`;
       populateKnownServerOptions(suggestedHost);
       await refreshTmuxSessions(suggestedHost || '127.0.0.1');
       await refreshWorkspaceTabOptions(suggestedHost || '127.0.0.1');
@@ -1965,6 +2002,7 @@ async function init() {
       if (server) {
         const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
         addLabel.value = displayName(server);
+        addProjectPath.value = server.project || `/home/dh/code/${displayName(server)}`;
         addServerIp.value = host;
         populateKnownServerOptions(host);
         await refreshTmuxSessions(host);
@@ -1977,6 +2015,7 @@ async function init() {
       const host = machine ? machine.ip : '';
       addServerIp.value = host;
       addLabel.value = machine ? machine.name : addLabel.value;
+      addProjectPath.value = `/home/dh/code/${addLabel.value.trim() || 'project'}`;
       populateKnownServerOptions(host);
       await refreshTmuxSessions(host || '127.0.0.1');
       await refreshWorkspaceTabOptions(host || '127.0.0.1');
@@ -1990,6 +2029,7 @@ async function init() {
       addServerIp.value = addKnownServer.value;
       const match = HOMELAB_SERVERS.find((s) => s.ip === addKnownServer.value);
       if (match && !addLabel.value.trim()) addLabel.value = match.name;
+      if (!addProjectPath.value.trim()) addProjectPath.value = `/home/dh/code/${addLabel.value.trim() || 'project'}`;
       await refreshTmuxSessions(addKnownServer.value);
       await refreshWorkspaceTabOptions(addKnownServer.value);
       fillTmuxOptions('1');

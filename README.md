@@ -34,13 +34,15 @@ Install the `rr-*` helper commands into `~/.local/bin` so they work from any rep
 ~/code/remote-rider/install.sh
 ```
 
-This links `rr-init`, `rr-files`, `rr-skill`, and `rr-notes`. Make sure `~/.local/bin` is in `PATH`.
+This links `rr-init` plus the legacy helper commands `rr-files`, `rr-skill`, and `rr-notes`.
+Make sure `~/.local/bin` is in `PATH`.
 
 ## Start Modes
 
 ### 1) Remote node mode (run on each target server)
 
-Starts terminal + monitor + logs + files + API/hub endpoint on that server.
+Starts terminal + monitor + logs + API/hub endpoint on that server. The hub also serves built-in
+workspace Files, Skills, and Notes views.
 
 ```bash
 ./start-remote.sh
@@ -78,11 +80,12 @@ or:
 Click `+` in sidebar:
 
 1. Set the workspace label, machine, and workspace type in `Workspace config`.
-2. Choose tabs from service checkboxes. `Terminal` is mandatory; `Notes`, `Skills`, and `Files` are selected by default, and other live services appear unchecked.
-3. Choose terminal tmux session source:
+2. Set the project path for the workspace. Built-in Files, Skills, and Notes use this path.
+3. Choose tabs from service checkboxes. `Terminal` is mandatory; `Notes`, `Skills`, and `Files` are selected by default, and other live services appear unchecked.
+4. Choose terminal tmux session source:
    - existing tmux session (queried from selected host)
    - new tmux session name
-4. Create the workspace.
+5. Create the workspace.
 
 ## Workspace Setup Flow
 
@@ -93,7 +96,7 @@ Each workspace row includes setup. Use it to maintain tab mappings after creatio
 - Edit tab label/port/path/protocol
 - Sync tab list/ports from remote (`/machines/proxy`)
 - Discover remote services and adopt them as tabs
-- Launch a new files service on the target host and wire `Files` panel automatically
+- Add built-in or custom service tabs
 - Save updated workspace config to browser localStorage
 
 This is the fastest way to fix broken Monitor/Logs/Files/Terminal mappings after restarts or port shifts.
@@ -126,6 +129,9 @@ Each template entry uses:
 - `GET /sessions/<name>` -> one saved workspace
 - `POST /sessions/<name>/tabs` -> add/update a tab in a saved workspace
 - `DELETE /sessions/<name>/tabs` -> remove a tab from a saved workspace
+- `GET /workspaces/<name>/notes` -> built-in Notes UI for the workspace project
+- `GET /workspaces/<name>/skills` -> built-in Skills UI for the workspace project
+- `GET /workspaces/<name>/files` -> built-in Files browser/editor for the workspace project
 - `GET /control/context` -> control-side view of known machines, sessions, and templates
 - `GET /session-templates` -> panel templates for add-session modal
 - `GET /panel/status?host=<ip>&port=<n>` -> single panel port health probe
@@ -143,8 +149,8 @@ Each template entry uses:
 - `POST /admin/update-remote/proxy` -> schedule `git pull` + remote stack restart on a selected server
 - `GET /machines/proxy?host=<ip>&port=7000` -> machine panel config from selected server
 - `GET /servers/proxy?host=<ip>&port=7000` -> legacy-compatible alias
-- `POST /services/files/start` -> start an additional fileserver on this host
-- `POST /services/files/start/proxy` -> start an additional fileserver on a selected server
+- `POST /services/files/start` -> legacy additional fileserver starter
+- `POST /services/files/start/proxy` -> legacy proxied fileserver starter
 - `POST /tmux/kill` -> kill a tmux session on local host or proxied host
 
 ## Run Modes

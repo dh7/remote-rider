@@ -59,7 +59,7 @@ if [[ "$ACTION" == "--stop" || "$ACTION" == "stop" ]]; then
   exit 0
 fi
 
-"$VENV/uvicorn" main:app --host "$HOST" --port "$PORT" > "$LOG_DIR/hub.log" 2>&1 &
+setsid "$VENV/uvicorn" main:app --host "$HOST" --port "$PORT" > "$LOG_DIR/hub.log" 2>&1 < /dev/null &
 echo "$!" > "$PID_DIR/hub.pid"
 
 echo "Control hub: http://$HOST:$PORT"
