@@ -78,6 +78,16 @@ function saveProfiles() {
   queueSessionSaveToControl();
 }
 
+function mergeSessionForControlSave(localSession, remoteSession) {
+  if (!localSession) return remoteSession;
+  if (!remoteSession) return localSession;
+  const merged = { ...remoteSession, ...localSession };
+  if (!merged.project && remoteSession.project) {
+    merged.project = remoteSession.project;
+  }
+  return merged;
+}
+
 async function loadSessionsFromControl() {
   try {
     const response = await fetch('/sessions');
@@ -132,7 +142,7 @@ async function flushSessionsToControl() {
       const seen = new Set();
       latest.forEach((remoteSession) => {
         if (!remoteSession || !remoteSession.name || state.pendingDeletedSessions.has(remoteSession.name)) return;
-        merged.push(localByName.get(remoteSession.name) || remoteSession);
+        merged.push(mergeSessionForControlSave(localByName.get(remoteSession.name), remoteSession));
         seen.add(remoteSession.name);
       });
       state.sessions.forEach((localSession) => {

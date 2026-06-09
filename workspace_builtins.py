@@ -75,6 +75,15 @@ def _project_for(session_name: str) -> Path:
     candidate = Path.home() / "code" / session_name
     if candidate.exists():
         return candidate.resolve()
+    code_root = Path.home() / "code"
+    if code_root.exists():
+        for rr_path in code_root.glob("*/.rr"):
+            try:
+                data = json.loads(rr_path.read_text())
+            except Exception:
+                continue
+            if isinstance(data, dict) and data.get("session") == session_name:
+                return rr_path.parent.resolve()
     raise HTTPException(status_code=400, detail="workspace project path is not configured")
 
 
