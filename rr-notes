@@ -88,6 +88,11 @@ HTML = r"""<!doctype html>
     article h1:first-child, article h2:first-child { margin-top: 0; }
     article pre { background: #0d1015; border: 1px solid #29303a; border-radius: 6px; padding: 10px; overflow-x: auto; }
     article code { background: #1c222c; border-radius: 4px; padding: 1px 4px; }
+    article .table-wrap { max-width: 100%; overflow-x: auto; }
+    article table { border-collapse: collapse; margin: .6em 0; font-size: 13px; }
+    article th, article td { border: 1px solid #2b3038; padding: 5px 10px; text-align: left; }
+    article th { background: #1c222c; font-weight: 600; }
+    article tbody tr:nth-child(even) { background: #14181f; }
     .status-grid { display: flex; gap: 10px; flex-wrap: wrap; }
   </style>
 </head>
@@ -201,17 +206,100 @@ HTML = r"""<!doctype html>
     function inline(s) {
       return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     }
+    function isEscapedPipe(s, idx) {
+      let slashCount = 0;
+      for (let i = idx - 1; i >= 0 && s[i] === '\\'; i--) slashCount++;
+      return slashCount % 2 === 1;
+    }
+    function isBoundaryPipe(s, idx) {
+      if (s[idx] !== '|' || isEscapedPipe(s, idx)) return false;
+      let inCode = false;
+      for (let i = 0; i < idx; i++) {
+        if (s[i] === '`' && !isEscapedPipe(s, i)) inCode = !inCode;
+      }
+      return !inCode;
+    }
+    function trimTableBoundaries(line) {
+      let s = line.trim();
+      if (s && isBoundaryPipe(s, 0)) s = s.slice(1);
+      if (s && isBoundaryPipe(s, s.length - 1)) s = s.slice(0, -1);
+      return s;
+    }
+    function splitRow(line) {
+      const s = trimTableBoundaries(line);
+      const cells = [];
+      let cell = '';
+      let inCode = false;
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === '`' && !isEscapedPipe(s, i)) {
+          inCode = !inCode;
+          cell += ch;
+          continue;
+        }
+        if (ch === '\\' && s[i + 1] === '|') {
+          cell += '|';
+          i++;
+          continue;
+        }
+        if (ch === '|' && !inCode) {
+          cells.push(cell.trim());
+          cell = '';
+          continue;
+        }
+        cell += ch;
+      }
+      cells.push(cell.trim());
+      return cells;
+    }
+    function isTableSep(line) {
+      if (!line || line.indexOf('|') === -1) return false;
+      const cells = splitRow(line);
+      return cells.length > 0 && cells.every(c => /^:?-{1,}:?$/.test(c));
+    }
+    function isTableRow(line) {
+      return !!line && line.trim() && line.indexOf('|') !== -1 && splitRow(line).length > 1;
+    }
+    function alignFor(cell) {
+      const l = cell.startsWith(':'), r = cell.endsWith(':');
+      if (l && r) return 'center';
+      if (r) return 'right';
+      if (l) return 'left';
+      return '';
+    }
     function renderMarkdown(text) {
       const lines = String(text || '').split('\n');
       let out = '';
       let inCode = false;
       let inList = false;
-      for (const line of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         if (line.startsWith('```')) {
           if (inCode) { out += '</code></pre>'; inCode = false; } else { out += '<pre><code>'; inCode = true; }
           continue;
         }
         if (inCode) { out += esc(line) + '\n'; continue; }
+        if (isTableRow(line) && isTableSep(lines[i + 1] || '')) {
+          if (inList) { out += '</ul>'; inList = false; }
+          const headers = splitRow(line);
+          const aligns = splitRow(lines[i + 1]).map(alignFor);
+          const cellStyle = k => aligns[k] ? ` style="text-align:${aligns[k]}"` : '';
+          const rows = [];
+          let j = i + 2;
+          while (j < lines.length && isTableRow(lines[j])) {
+            rows.push(splitRow(lines[j]));
+            j++;
+          }
+          const width = Math.max(headers.length, aligns.length, ...rows.map(cells => cells.length));
+          const indexes = Array.from({length: width}, (_, k) => k);
+          const head = '<tr>' + indexes.map(k => `<th${cellStyle(k)}>${inline(headers[k] || '')}</th>`).join('') + '</tr>';
+          const bodyRows = rows.map(cells => (
+            '<tr>' + indexes.map(k => `<td${cellStyle(k)}>${inline(cells[k] || '')}</td>`).join('') + '</tr>'
+          )).join('');
+          out += `<div class="table-wrap"><table><thead>${head}</thead><tbody>${bodyRows}</tbody></table></div>`;
+          i = j - 1;
+          continue;
+        }
         const h = line.match(/^(#{1,3})\s+(.*)$/);
         if (h) {
           if (inList) { out += '</ul>'; inList = false; }
@@ -237,7 +325,29 @@ HTML = r"""<!doctype html>
       drafts[current] = e.target.value;
       renderMarkdown(e.target.value);
     });
-    refresh().catch(err => document.getElementById('message').textContent = String(err));
+    async function autoSync() {
+      if (!state) return;
+      let next;
+      try {
+        next = await api('/api/state');
+      } catch (err) {
+        return;
+      }
+      document.getElementById('git').textContent = next.git.branch ? `${next.git.branch} · ${next.git.dirty_count} dirty` : '';
+      for (const kind of Object.keys(next.files)) {
+        const prev = state.files[kind] || {};
+        const dirty = (kind in drafts) && drafts[kind] !== (prev.content || '');
+        if (!dirty && (kind in drafts)) drafts[kind] = next.files[kind].content || '';
+      }
+      state.files = next.files;
+      state.git = next.git;
+      // Skip the redraw while the user is actively typing to avoid caret jumps.
+      if (document.activeElement && document.activeElement.id === 'text') return;
+      render();
+    }
+    refresh()
+      .then(() => setInterval(autoSync, 1500))
+      .catch(err => document.getElementById('message').textContent = String(err));
   </script>
 </body>
 </html>
@@ -333,11 +443,18 @@ def post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
         return json.loads(resp.read().decode())
 
 
+def service_name_for_session(session: str) -> str:
+    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in session.strip())
+    collapsed = "-".join(part for part in cleaned.split("-") if part)
+    return f"notes-{collapsed or 'session'}"
+
+
 def register_tab(control: str, session: str, label: str, port: int) -> None:
     host = os.environ.get("PUBLIC_HOST", "")
+    service_name = service_name_for_session(session)
     payload: dict[str, Any] = {
         "label": label,
-        "service": "notes",
+        "service": service_name,
         "port": port,
         "path": "/",
         "protocol": "http",
@@ -352,9 +469,10 @@ def register_tab(control: str, session: str, label: str, port: int) -> None:
 
 def register_local_service(project: Path, session: str, label: str, port: int) -> None:
     registry = Path(__file__).resolve().parent / "service_registry.json"
+    service_name = service_name_for_session(session)
     row = {
         "kind": "web",
-        "name": "notes",
+        "name": service_name,
         "label": label,
         "port": port,
         "pid": os.getpid(),
@@ -370,7 +488,17 @@ def register_local_service(project: Path, session: str, label: str, port: int) -
             rows = []
     except Exception:
         rows = []
-    rows = [r for r in rows if not (isinstance(r, dict) and r.get("pid") == os.getpid())]
+    rows = [
+        r for r in rows
+        if not (
+            isinstance(r, dict)
+            and (
+                r.get("pid") == os.getpid()
+                or (r.get("name") == service_name and r.get("session_name") == session)
+                or (r.get("name") == "notes" and r.get("session_name") == session and r.get("label") == label)
+            )
+        )
+    ]
     rows.append(row)
     registry.write_text(json.dumps(rows, indent=2) + "\n")
 

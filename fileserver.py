@@ -9,7 +9,10 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 app = FastAPI()
 import os as _os
-ROOT = Path(_os.environ["RR_FILES_ROOT"]).expanduser().resolve() if _os.environ.get("RR_FILES_ROOT") else Path.home().resolve()
+# START is the directory the tab was opened on: the landing spot and the only
+# writable zone. BOUNDARY is how far navigation may climb — the whole machine.
+START = Path(_os.environ["RR_FILES_ROOT"]).expanduser().resolve() if _os.environ.get("RR_FILES_ROOT") else Path.home().resolve()
+BOUNDARY = Path("/").resolve()
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30
 
 STYLE = """
@@ -53,6 +56,7 @@ STYLE = """
   }
   .btn:hover { filter: brightness(1.12); }
 
+  .ro-note { color: #fa0; font-size: 0.78rem; border: 1px solid #87611e; background: #4f3a1c; padding: 0.2rem 0.5rem; border-radius: 3px; }
   .dir { color: #fa0; }
   .dir-hidden { color: #666; }
   .img { color: #af7; }
@@ -190,17 +194,44 @@ STYLE = """
   }
 
   .hidden { display: none !important; }
+
+  .dropzone {
+    margin-top: 1rem;
+    border: 2px dashed #3e4455;
+    border-radius: 8px;
+    padding: 2.2rem 1rem;
+    text-align: center;
+    color: #9aa4b2;
+    background: #16181f;
+    cursor: pointer;
+  }
+  .dropzone.drag { border-color: #6aa0ff; background: #1b2740; color: #cfe0ff; }
+  .dropzone .hint { margin-top: 0.5rem; font-size: 0.82rem; }
+  .upload-status { margin-top: 0.6rem; color: #9aa4b2; font-size: 0.82rem; }
 </style>
 """
 
 
 def _safe(path: str) -> Path:
-    target = (ROOT / path).resolve()
+    target = (BOUNDARY / path).resolve()
     try:
-        target.relative_to(ROOT)
+        target.relative_to(BOUNDARY)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Path escapes root") from exc
     return target
+
+
+def _within_start(target: Path) -> bool:
+    try:
+        target.resolve().relative_to(START)
+        return True
+    except ValueError:
+        return False
+
+
+def _require_writable(target: Path) -> None:
+    if not _within_start(target):
+        raise HTTPException(status_code=403, detail="Read-only: outside the tab's start directory")
 
 
 def _q(path: str) -> str:
@@ -212,7 +243,7 @@ def _decode_cookie_path(value: str | None) -> str:
 
 
 def _rel(path: Path) -> str:
-    return str(path.relative_to(ROOT))
+    return str(path.relative_to(BOUNDARY))
 
 
 def _is_safe_dir(path: str) -> bool:
@@ -307,18 +338,23 @@ def _git_status_map(directory: Path) -> dict[str, tuple[str, str]]:
 
 def breadcrumbs(path: str) -> str:
     parts = Path(path).parts if path else []
-    crumbs = ['<a href="/files?path=&force_home=1">home</a>']
+    crumbs = ['<a href="/files?path=&force_root=1">/</a>']
     acc = Path()
     for part in parts:
         acc /= part
-        crumbs.append(f'/ <a href="/files?path={_q(str(acc))}">{escape(part)}</a>')
-    return f'<div class="crumbs">{" ".join(crumbs)}</div>'
+        crumbs.append(f'<a href="/files?path={_q(str(acc))}">{escape(part)}</a>')
+    return f'<div class="crumbs">{" / ".join(crumbs)}</div>'
 
 
 @app.get("/files", response_class=HTMLResponse)
 def browse(request: Request, path: str = "") -> HTMLResponse:
     force_home = request.query_params.get("force_home") == "1"
-    if not path and not force_home:
+    force_root = request.query_params.get("force_root") == "1"
+    if force_root:
+        path = ""
+    elif force_home:
+        path = _rel(START)
+    elif not path:
         last_view = request.cookies.get("fs_last_view", "")
         last_dir = _decode_cookie_path(request.cookies.get("fs_last_dir"))
         last_file = _decode_cookie_path(request.cookies.get("fs_last_file"))
@@ -327,6 +363,8 @@ def browse(request: Request, path: str = "") -> HTMLResponse:
             return RedirectResponse(url=f"/edit?path={_q(last_file)}", status_code=302)
         if last_dir and _is_safe_dir(last_dir):
             path = last_dir
+        else:
+            path = _rel(START)
 
     target = _safe(path)
     if not target.exists():
@@ -334,20 +372,25 @@ def browse(request: Request, path: str = "") -> HTMLResponse:
     if not target.is_dir():
         raise HTTPException(status_code=400, detail="Not a directory")
 
+    writable = _within_start(target)
     statuses = _git_status_map(target)
     entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+    actions = f'<a class="btn ghost" href="/files?path=&force_home=1">start</a>'
+    if writable:
+        actions += f'<a class="btn" href="/new-file?path={_q(path)}">Create File</a>'
+    else:
+        actions += '<span class="ro-note">read-only</span>'
     items = (
         '<div class="topbar">'
         f'{breadcrumbs(path)}'
-        '<div class="toolbar-actions">'
-        f'<a class="btn" href="/new-file?path={_q(path)}">Create File</a>'
-        '</div>'
+        f'<div class="toolbar-actions">{actions}</div>'
         '</div><hr>'
     )
 
     if path:
-        parent = str(Path(path).parent) if Path(path).parent != Path(path) else ""
-        items += f'<a class="dir" href="/files?path={_q(parent)}">..</a>'
+        parent = "" if Path(path).parent == Path(".") else str(Path(path).parent)
+        suffix = "&force_root=1" if not parent else ""
+        items += f'<a class="dir" href="/files?path={_q(parent)}{suffix}">..</a>'
 
     for entry in entries:
         rel = _rel(entry)
@@ -376,6 +419,7 @@ def new_file_form(path: str = "") -> HTMLResponse:
     directory = _safe(path)
     if not directory.exists() or not directory.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
+    _require_writable(directory)
 
     form = f"""
     <html><head>{STYLE}</head><body>
@@ -390,6 +434,53 @@ def new_file_form(path: str = "") -> HTMLResponse:
         <input class="save-path" type="text" name="new_path" placeholder="new file path" autofocus>
         <button class="btn" type="submit">Create File</button>
       </form>
+
+      <div id="dropzone" class="dropzone">
+        <div><strong>Drop files here</strong> to upload into this folder</div>
+        <div class="hint">or <button class="btn ghost" type="button" id="pick">choose files</button></div>
+        <input id="file-input" type="file" multiple class="hidden">
+      </div>
+      <div id="upload-status" class="upload-status"></div>
+
+      <script>
+        const uploadDir = {json.dumps(path)};
+        const dz = document.getElementById('dropzone');
+        const fileInput = document.getElementById('file-input');
+        const statusEl = document.getElementById('upload-status');
+
+        document.getElementById('pick').addEventListener('click', () => fileInput.click());
+        dz.addEventListener('click', (e) => {{ if (e.target === dz || e.target.tagName === 'STRONG' || e.target.tagName === 'DIV') fileInput.click(); }});
+        fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
+
+        ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, (e) => {{ e.preventDefault(); dz.classList.add('drag'); }}));
+        ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, (e) => {{ e.preventDefault(); dz.classList.remove('drag'); }}));
+        ['dragover', 'drop'].forEach(ev => window.addEventListener(ev, (e) => e.preventDefault()));
+        dz.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
+
+        async function uploadFiles(files) {{
+          const list = Array.from(files || []);
+          if (!list.length) return;
+          let done = 0, failed = 0;
+          for (const file of list) {{
+            statusEl.textContent = `Uploading ${{file.name}} (${{done + failed + 1}}/${{list.length}})...`;
+            try {{
+              const res = await fetch('/upload?path=' + encodeURIComponent(uploadDir) + '&name=' + encodeURIComponent(file.name), {{
+                method: 'POST',
+                headers: {{ 'content-type': 'application/octet-stream' }},
+                body: file,
+              }});
+              if (res.ok) {{ done++; }}
+              else {{ failed++; statusEl.textContent = `Failed ${{file.name}}: ${{await res.text()}}`; }}
+            }} catch (err) {{ failed++; statusEl.textContent = `Failed ${{file.name}}: ${{err}}`; }}
+          }}
+          if (!failed) {{
+            statusEl.textContent = `Uploaded ${{done}} file(s). Opening folder...`;
+            window.location.href = '/files?path=' + encodeURIComponent(uploadDir);
+          }} else {{
+            statusEl.textContent = `Uploaded ${{done}}, failed ${{failed}}.`;
+          }}
+        }}
+      </script>
     </body></html>
     """
     response = HTMLResponse(form)
@@ -418,6 +509,7 @@ def edit_file(path: str) -> HTMLResponse:
     parent = str(Path(rel).parent)
     parent_q = _q(parent)
     content = escape(target.read_text(errors="replace"))
+    writable = _within_start(target)
 
     is_csv = target.suffix.lower() == ".csv"
     is_markdown = target.suffix.lower() in {".md", ".markdown", ".mdown"}
@@ -427,6 +519,7 @@ def edit_file(path: str) -> HTMLResponse:
     save_as_js = json.dumps(f"{rel}.copy")
     is_csv_js = "true" if is_csv else "false"
     is_md_js = "true" if is_markdown else "false"
+    can_write_js = "true" if writable else "false"
 
     html = f"""<html><head>{STYLE}
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
@@ -455,10 +548,10 @@ def edit_file(path: str) -> HTMLResponse:
         <button id="mode-code" class="btn ghost" type="button">Code</button>
         <button id="mode-csv" class="btn ghost" type="button">CSV</button>
         <button id="mode-view" class="btn ghost" type="button">View</button>
-        <button class="btn" type="button" onclick="saveFile()">Save</button>
-        <button class="btn ghost" type="button" onclick="saveAsFile()">Save As</button>
-        <button class="btn ghost" type="button" onclick="renameMoveFile()">Rename/Move</button>
-        <button class="btn danger" type="button" onclick="deleteFile()">Delete</button>
+        <button id="btn-save" class="btn" type="button" onclick="saveFile()">Save</button>
+        <button id="btn-saveas" class="btn ghost" type="button" onclick="saveAsFile()">Save As</button>
+        <button id="btn-rename" class="btn ghost" type="button" onclick="renameMoveFile()">Rename/Move</button>
+        <button id="btn-delete" class="btn danger" type="button" onclick="deleteFile()">Delete</button>
       </div>
 
       <div class="toolbar">
@@ -466,8 +559,8 @@ def edit_file(path: str) -> HTMLResponse:
         <input id="search-input" class="search-input" type="text" placeholder="search">
         <input id="replace-input" class="replace-input" type="text" placeholder="replace">
         <button class="btn ghost" type="button" onclick="findNext()">Find Next</button>
-        <button class="btn ghost" type="button" onclick="replaceOne()">Replace</button>
-        <button class="btn ghost" type="button" onclick="replaceAll()">Replace All</button>
+        <button id="btn-replace" class="btn ghost" type="button" onclick="replaceOne()">Replace</button>
+        <button id="btn-replaceall" class="btn ghost" type="button" onclick="replaceAll()">Replace All</button>
       </div>
 
       <div class="pane-stack">
@@ -494,6 +587,7 @@ def edit_file(path: str) -> HTMLResponse:
       const parentPath = {parent_js};
       const isCsvFile = {is_csv_js};
       const isMarkdownFile = {is_md_js};
+      const canWrite = {can_write_js};
 
       const savePathInput = document.getElementById('save-path');
       const searchInput = document.getElementById('search-input');
@@ -535,6 +629,13 @@ def edit_file(path: str) -> HTMLResponse:
 
       function markDirty() {{ dirty = true; }}
       function clearDirty() {{ dirty = false; }}
+      function requireWrite() {{
+        if (!canWrite) {{
+          alert('This file is outside the tab\'s start directory and is read-only.');
+          return false;
+        }}
+        return true;
+      }}
 
       window.addEventListener('beforeunload', (e) => {{
         if (!dirty) return;
@@ -712,6 +813,7 @@ def edit_file(path: str) -> HTMLResponse:
       }}
 
       async function saveFile() {{
+        if (!requireWrite()) return;
         syncBeforeSave();
         const ok = await postJson('/save?path=' + encodeURIComponent(currentPath), {{ content: textarea.value }});
         if (ok) {{
@@ -721,6 +823,7 @@ def edit_file(path: str) -> HTMLResponse:
       }}
 
       async function saveAsFile() {{
+        if (!requireWrite()) return;
         syncBeforeSave();
         const newPath = savePathInput.value.trim();
         if (!newPath) return;
@@ -735,6 +838,7 @@ def edit_file(path: str) -> HTMLResponse:
       }}
 
       async function renameMoveFile() {{
+        if (!requireWrite()) return;
         syncBeforeSave();
         const newPath = savePathInput.value.trim();
         if (!newPath) return;
@@ -749,6 +853,7 @@ def edit_file(path: str) -> HTMLResponse:
       }}
 
       async function deleteFile() {{
+        if (!requireWrite()) return;
         if (!confirm('Delete this file?')) return;
         const ok = await postJson('/delete?path=' + encodeURIComponent(currentPath));
         if (ok) {{
@@ -789,6 +894,7 @@ def edit_file(path: str) -> HTMLResponse:
       }}
 
       function replaceOne() {{
+        if (!requireWrite()) return;
         const q = searchInput.value;
         if (!q) return;
         const rep = replaceInput.value;
@@ -820,6 +926,7 @@ def edit_file(path: str) -> HTMLResponse:
       }}
 
       function replaceAll() {{
+        if (!requireWrite()) return;
         const q = searchInput.value;
         if (!q) return;
         const rep = replaceInput.value;
@@ -881,6 +988,17 @@ def edit_file(path: str) -> HTMLResponse:
 
       initEditor();
 
+      if (!canWrite) {{
+        if (editor) editor.setOption('readOnly', true);
+        ['btn-save', 'btn-saveas', 'btn-rename', 'btn-delete', 'btn-replace', 'btn-replaceall', 'save-path', 'replace-input']
+          .forEach(id => {{ const el = document.getElementById(id); if (el) el.classList.add('hidden'); }});
+        const note = document.createElement('span');
+        note.className = 'path';
+        note.style.color = '#fa0';
+        note.textContent = 'read-only (outside start dir)';
+        document.querySelector('.toolbar').appendChild(note);
+      }}
+
       if (!isCsvFile) modeCsvBtn.classList.add('hidden');
       if (!isMarkdownFile) modeViewBtn.classList.add('hidden');
 
@@ -924,6 +1042,7 @@ async def _read_payload(request: Request) -> dict[str, str]:
 @app.post("/save", response_class=HTMLResponse)
 async def save_file(path: str, request: Request) -> HTMLResponse:
     target = _safe(path)
+    _require_writable(target)
     if target.exists() and not target.is_file():
         raise HTTPException(status_code=400, detail="Not a file")
 
@@ -942,6 +1061,7 @@ async def save_as(path: str, request: Request) -> HTMLResponse:
         raise HTTPException(status_code=400, detail="new_path is required")
 
     target = _safe(new_path)
+    _require_writable(target)
     if target.exists() and target.is_dir():
         raise HTTPException(status_code=400, detail="Cannot overwrite a directory")
 
@@ -953,6 +1073,7 @@ async def save_as(path: str, request: Request) -> HTMLResponse:
 @app.post("/rename", response_class=HTMLResponse)
 async def rename_file(path: str, request: Request) -> HTMLResponse:
     source = _safe(path)
+    _require_writable(source)
     if not source.exists() or not source.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -962,6 +1083,7 @@ async def rename_file(path: str, request: Request) -> HTMLResponse:
         raise HTTPException(status_code=400, detail="new_path is required")
 
     target = _safe(new_path)
+    _require_writable(target)
     if target.exists() and target.is_dir():
         raise HTTPException(status_code=400, detail="Cannot overwrite a directory")
 
@@ -977,6 +1099,7 @@ async def rename_file(path: str, request: Request) -> HTMLResponse:
 @app.post("/delete", response_class=HTMLResponse)
 def delete_file(path: str) -> HTMLResponse:
     target = _safe(path)
+    _require_writable(target)
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     target.unlink()
@@ -988,6 +1111,7 @@ async def create_file(path: str, request: Request) -> dict[str, str]:
     directory = _safe(path)
     if not directory.exists() or not directory.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
+    _require_writable(directory)
 
     payload = await _read_payload(request)
     new_path = payload.get("new_path", "").strip()
@@ -995,6 +1119,7 @@ async def create_file(path: str, request: Request) -> dict[str, str]:
         raise HTTPException(status_code=400, detail="new_path is required")
 
     target = _safe(str(Path(path) / new_path))
+    _require_writable(target)
     if target.exists():
         raise HTTPException(status_code=400, detail="File already exists")
     if target.suffix == "" and new_path.endswith("/"):
@@ -1008,6 +1133,28 @@ async def create_file(path: str, request: Request) -> dict[str, str]:
         return {"status": "ok", "path": rel}
 
     return RedirectResponse(url=f"/edit?path={_q(rel)}", status_code=303)
+
+
+@app.post("/upload")
+async def upload_file(request: Request, path: str = "", name: str = "") -> dict[str, str]:
+    directory = _safe(path)
+    if not directory.exists() or not directory.is_dir():
+        raise HTTPException(status_code=404, detail="Directory not found")
+    _require_writable(directory)
+
+    filename = Path(name).name
+    if not filename:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    target = _safe(str(Path(path) / filename))
+    _require_writable(target)
+    if target.exists() and target.is_dir():
+        raise HTTPException(status_code=400, detail="Cannot overwrite a directory")
+
+    data = await request.body()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return {"status": "ok", "path": _rel(target)}
 
 
 @app.get("/raw")
