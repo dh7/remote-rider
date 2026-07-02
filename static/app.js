@@ -802,6 +802,7 @@ function ensureFrame(server, tab, endpoint) {
 
   const iframe = document.createElement('iframe');
   iframe.id = id;
+  iframe.allow = 'clipboard-read; clipboard-write';
   iframe.src = url;
   framesEl.appendChild(iframe);
   return iframe;
@@ -1569,6 +1570,16 @@ async function renderTabs(server, refreshLive = true) {
     const text = document.createElement('span');
     text.textContent = panel.label;
     btn.appendChild(text);
+    const popoutBtn = document.createElement('span');
+    popoutBtn.className = 'tab-popout-btn';
+    popoutBtn.textContent = '↗';
+    popoutBtn.title = `Open ${panel.label} in a new window (enables system clipboard)`;
+    popoutBtn.onclick = (e) => {
+      e.stopPropagation();
+      const url = endpointUrl(server, panel, endpoint);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    };
+    btn.appendChild(popoutBtn);
     const isTerminal = (panel.service === 'terminal' || panel.label.toLowerCase() === 'terminal');
     if (!isTerminal) {
       const closeBtn = document.createElement('span');

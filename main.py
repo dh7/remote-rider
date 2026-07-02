@@ -111,6 +111,13 @@ app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 app.include_router(workspace_builtins_router)
 
 
+@app.middleware("http")
+async def add_clipboard_permissions_policy(request, call_next):
+    response = await call_next(request)
+    response.headers["Permissions-Policy"] = "clipboard-read=*, clipboard-write=*"
+    return response
+
+
 # ── Remote machine proxy ──────────────────────────────────────────────────────
 
 def _fetch_remote_servers(host: str, port: int) -> dict[str, Any]:
