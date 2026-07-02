@@ -180,3 +180,59 @@ Update logs: `logs/update-remote.log`
 
 Intentionally deferred. The current environment is a single-user Tailscale network.
 The API shape (session-scoped tab mutations, hub-proxied kills) is designed to make auth easy to add later.
+
+## Clipboard in Terminal Tabs
+
+ttyd's xterm.js auto-copies on selection via `document.execCommand('copy')` and flashes a ✂ overlay. Two gotchas affect this:
+
+1. **Cross-origin iframe blocks the copy.** The dashboard hub and each ttyd run on different origins (different ports/hosts), so the terminal tab is a cross-origin iframe. Chromium-based browsers (incl. Arc) block `execCommand('copy')` there unless the parent delegates clipboard via Permissions-Policy AND the iframe carries `allow="clipboard-read; clipboard-write"`. Both are now in place (`main.py` middleware + `app.js` iframe creation). Each tab also has a ↗ popout button to open it as a top-level page if the in-iframe path ever breaks again.
+
+2. **Claude Code (and any TUI in mouse-capture mode) preempts xterm.js selection.** When Claude Code is in fullscreen/alt-screen mode it requests mouse events, so plain mouse drags go to Claude, not to xterm.js's native selection — no selection means no copy and no ✂. **Workaround: hold Shift while dragging.** Shift is the X11/xterm convention for "ignore the app's mouse capture and do the terminal's native selection." Same fix applies to vim with `set mouse=a`, htop, btop, etc.
+
+If a user reports "copy stopped working" in a Terminal tab, check whether a mouse-capturing TUI is running in the active pane before suspecting browser/server config — that's the most common cause and the Shift+drag workaround resolves it immediately.
+
+## Post-Reboot Recovery on Remote Machines
+
+`start-remote.sh` is not yet under systemd, so after a machine reboot (or an SSH-session-kill of the process that launched it) all five services — ttyd, hub, monitor, logs, fileserver — go down together. Symptoms: dashboard shows a broken workspace, `/services/proxy` returns empty, ttyd port is either dead or occupied by the OS-default `ttyd.service` (Ubuntu ships one that binds `127.0.0.1:7681 -O login`, which is *not* what remote-rider wants — it's a red herring, ignore it).
+
+Restart cleanly, detached from the launching SSH session:
+
+```bash
+ssh <machine>
+cd ~/code/remote-rider
+setsid nohup bash start-remote.sh > logs/start-remote.log 2>&1 < /dev/null &
+disown
+```
+
+`setsid nohup … < /dev/null &` + `disown` is the exact recipe — a plain `nohup &` still dies when the SSH ControlMaster tears down. Verify:
+
+```bash
+tail -8 logs/start-remote.log
+for f in logs/pids/*.pid; do
+  pid=$(cat $f); printf "%-15s pid=%s %s\n" "$(basename $f .pid)" "$pid" \
+    "$(kill -0 $pid 2>/dev/null && echo ALIVE || echo dead)"
+done
+```
+
+Same recipe for the gx10 model manager (`~/code/vlmtest/model_manager.py` on port 8999) — it also dies with the SSH session that launched it. Use `python3` (system, not the missing `~/venv/bin/python`).
+
+## Terminal Tabs Should Load `byobu-tmux`, Not Bare `tmux`
+
+`terminal-entry.sh` invokes `byobu-tmux new-session -A -s "$SESSION"` so the tmux server boots with byobu's status bar / keybindings loaded correctly from the start. Do *not* try to source byobu's tmux profile into an already-running plain tmux server (`tmux source-file /usr/share/byobu/profiles/tmux`) — it works partially but throws "invalid style" warnings because byobu's color/statusrc environment is only fully wired when byobu launches the server itself.
+
+Prerequisite on any machine using this: `~/.byobu/keybindings.tmux` must contain `set -g mouse off`. Byobu enables tmux mouse mode by default, which then intercepts browser text selection in the ttyd iframe — you lose the ✂ copy path. The `mouse off` override plus the Shift+drag rule (see previous section) covers all cases.
+
+If someone previously reverted this and switched back to plain `tmux` because of a copy/paste regression: it was almost certainly the mouse-mode issue above, not `byobu-tmux` itself. Re-apply the `byobu-tmux` swap along with the `~/.byobu/keybindings.tmux` override.
+
+## NFS Mount Recovery (gx10 specifically)
+
+gx10 mounts TrueNAS at `/mnt/truenas-shared` via fstab (`_netdev`). Post-reboot this occasionally fails to auto-mount — the model manager then shows `error` because model paths like `/mnt/truenas-shared/models/*` don't exist. Fix requires sudo and can't be done from a Claude session:
+
+```bash
+sudo mount /mnt/truenas-shared
+curl -X POST http://localhost:8999/sync
+```
+
+Then start whatever config was intended: `curl -X POST http://localhost:8999/configs/<name>/start`.
+
+Long-term: convert the fstab entry to `x-systemd.automount` or add a small `mount-truenas.service`.
