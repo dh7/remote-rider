@@ -43,6 +43,29 @@ def _kill_tmux_session(session: str) -> bool:
     return result.returncode == 0
 
 
+# Keys the mobile keypad may send. Client token -> tmux send-keys argument.
+# Restricting to this fixed set keeps clients from injecting arbitrary keystrokes.
+SEND_KEY_ALLOWLIST: dict[str, str] = {
+    "F1": "F1", "F2": "F2", "F3": "F3", "F4": "F4",
+    "F5": "F5", "F6": "F6", "F7": "F7", "F8": "F8",
+    "F9": "F9", "F10": "F10", "F11": "F11", "F12": "F12",
+    "Escape": "Escape", "Tab": "Tab", "Enter": "Enter", "C-c": "C-c",
+    "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right",
+}
+
+
+def _send_keys_tmux(session: str, tmux_key: str) -> bool:
+    if not _tmux_session_exists(session):
+        return False
+    result = subprocess.run(
+        ["tmux", "send-keys", "-t", session, tmux_key],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def _list_tmux_sessions() -> list[str]:
     if not shutil.which("tmux"):
         return []

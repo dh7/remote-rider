@@ -49,6 +49,7 @@ from models import (
     StartFilesServiceRequest,
     TabRequest,
     TmuxKillRequest,
+    TmuxSendKeysRequest,
     UpdateAllRemotesRequest,
 )
 from services import (
@@ -74,11 +75,13 @@ from storage import (
     _tab_slug,
 )
 from tmux import (
+    SEND_KEY_ALLOWLIST,
     _fetch_remote_agents,
     _fetch_remote_tmux_sessions,
     _kill_tmux_session,
     _list_local_agents,
     _list_tmux_sessions,
+    _send_keys_tmux,
     _start_agent_local,
     _start_remote_agent,
     _stop_agent_local,
@@ -684,6 +687,45 @@ def tmux_kill(payload: TmuxKillRequest) -> dict[str, Any]:
     req = UrlRequest(
         url,
         data=json.dumps({"host": "127.0.0.1", "session": session, "port": payload.port}).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=3) as resp:
+            remote_payload = json.loads(resp.read().decode("utf-8"))
+            if isinstance(remote_payload, dict):
+                remote_payload.setdefault("source", "proxy")
+                return remote_payload
+    except Exception as exc:
+        return {"status": "error", "reason": str(exc), "host": host, "session": session, "source": "proxy"}
+
+    return {"status": "error", "reason": "invalid response", "host": host, "session": session, "source": "proxy"}
+
+
+@app.post("/tmux/send-keys")
+def tmux_send_keys(payload: TmuxSendKeysRequest) -> dict[str, Any]:
+    host = _normalize_host(payload.host)
+    session = payload.session.strip()
+    key = payload.key.strip()
+    if not session:
+        raise HTTPException(status_code=400, detail="session is required")
+    tmux_key = SEND_KEY_ALLOWLIST.get(key)
+    if tmux_key is None:
+        raise HTTPException(status_code=400, detail=f"unsupported key: {key}")
+
+    if _is_local_host(host):
+        if not shutil.which("tmux"):
+            return {"status": "skipped", "reason": "tmux not available", "host": host, "session": session}
+        if not _tmux_session_exists(session):
+            return {"status": "not_found", "host": host, "session": session}
+        if _send_keys_tmux(session, tmux_key):
+            return {"status": "sent", "host": host, "session": session, "key": key}
+        return {"status": "error", "reason": "send-keys failed", "host": host, "session": session}
+
+    url = f"http://{host}:{payload.port}/tmux/send-keys"
+    req = UrlRequest(
+        url,
+        data=json.dumps({"host": "127.0.0.1", "session": session, "key": key, "port": payload.port}).encode("utf-8"),
         headers={"content-type": "application/json"},
         method="POST",
     )

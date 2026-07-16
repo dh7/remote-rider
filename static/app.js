@@ -25,6 +25,7 @@ const state = {
   controlSessionsAvailable: false,
   controlSessionsSignature: '',
   pendingDeletedSessions: new Set(),
+  keysMode: false,
 };
 
 const addModal = document.getElementById('add-modal');
@@ -188,6 +189,107 @@ async function refreshSessionsFromControlIfChanged() {
 
 function closeUpdateModal() {
   document.getElementById('update-modal').classList.remove('open');
+}
+
+// ── Terminal keypad (send F-keys / control keys to the active tmux session) ──
+const KEYPAD_KEYS = [
+  ['F1', 'F2', 'F3', 'F4'],
+  ['F5', 'F6', 'F7', 'F8'],
+  ['F9', 'F10', 'F11', 'F12'],
+  [['Escape', 'Esc'], ['Tab', 'Tab'], ['Enter', 'Enter'], ['C-c', '^C']],
+  [['Left', '←'], ['Up', '↑'], ['Down', '↓'], ['Right', '→']],
+];
+
+function activeServer() {
+  return state.sessions.find((s) => s.name === state.activeSession) || null;
+}
+
+function tmuxSessionFor(server) {
+  if (!server) return '';
+  const term = (server.tabs || []).find(
+    (t) => t.service === 'terminal' || String(t.label || '').toLowerCase() === 'terminal'
+  );
+  if (term && term.path) {
+    const m = /[?&]arg=([^&]+)/.exec(term.path);
+    if (m) {
+      try { return decodeURIComponent(m[1]); } catch (_) { return m[1]; }
+    }
+  }
+  return server.name || '';
+}
+
+function buildKeysGrid() {
+  const grid = document.getElementById('keys-grid');
+  grid.innerHTML = '';
+  for (const row of KEYPAD_KEYS) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'keys-row';
+    for (const spec of row) {
+      const key = Array.isArray(spec) ? spec[0] : spec;
+      const label = Array.isArray(spec) ? spec[1] : spec;
+      const btn = document.createElement('button');
+      btn.className = 'key-btn';
+      btn.type = 'button';
+      btn.textContent = label;
+      btn.onclick = () => sendKey(key, btn);
+      rowEl.appendChild(btn);
+    }
+    grid.appendChild(rowEl);
+  }
+}
+
+// The keyboard button switches the left panel between the workspace list and
+// the keypad, rather than opening a popup.
+function setKeysMode(on) {
+  state.keysMode = on;
+  document.getElementById('session-list').classList.toggle('hidden', on);
+  document.getElementById('keys-panel').classList.toggle('hidden', !on);
+  document.getElementById('send-keys-btn').classList.toggle('active', on);
+  if (on) {
+    const server = activeServer();
+    document.getElementById('keys-flash').textContent = '';
+    document.getElementById('keys-target').textContent = server
+      ? `→ ${displayName(server)} · ${tmuxSessionFor(server) || 'no terminal'}`
+      : 'No active workspace';
+    buildKeysGrid();
+  }
+}
+
+function toggleKeysMode() {
+  setKeysMode(!state.keysMode);
+}
+
+function toggleFullscreen() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  const exit = document.exitFullscreen || document.webkitExitFullscreen;
+  const isFull = document.fullscreenElement || document.webkitFullscreenElement;
+  if (!isFull && req) req.call(el);
+  else if (isFull && exit) exit.call(document);
+}
+
+async function sendKey(key, btn) {
+  const flash = document.getElementById('keys-flash');
+  const server = activeServer();
+  if (!server) { flash.textContent = 'No active workspace'; return; }
+  const session = tmuxSessionFor(server);
+  if (!session) { flash.textContent = 'No terminal for this workspace'; return; }
+  const host = sessionMachineHost(server) || '127.0.0.1';
+  if (btn) btn.classList.add('flash');
+  try {
+    const res = await fetch('/tmux/send-keys', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ host, port: 7000, session, key }),
+    }).then((r) => r.json());
+    flash.textContent = res.status === 'sent'
+      ? `sent ${key}`
+      : `${key}: ${res.status || 'error'}${res.reason ? ' — ' + res.reason : ''}`;
+  } catch (err) {
+    flash.textContent = `${key}: ${err.message}`;
+  } finally {
+    if (btn) setTimeout(() => btn.classList.remove('flash'), 180);
+  }
 }
 
 async function updateAllRemotes() {
@@ -1947,6 +2049,8 @@ async function init() {
   document.getElementById('update-modal').addEventListener('click', (e) => {
     if (e.target === document.getElementById('update-modal')) closeUpdateModal();
   });
+  document.getElementById('send-keys-btn').onclick = toggleKeysMode;
+  document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('sandbox-cancel').onclick = closeSandboxModal;
   document.getElementById('sandbox-submit').onclick = submitSandboxModal;
   document.getElementById('sandbox-modal').addEventListener('click', (e) => {
@@ -2053,6 +2157,7 @@ async function init() {
     if (e.key === 'Escape' && addModal.classList.contains('open')) closeAddModal();
     if (e.key === 'Escape' && panelModal.classList.contains('open')) closePanelModal();
     if (e.key === 'Escape' && document.getElementById('update-modal').classList.contains('open')) closeUpdateModal();
+    if (e.key === 'Escape' && state.keysMode) setKeysMode(false);
     if (e.key === 'Escape' && document.getElementById('sandbox-modal').classList.contains('open')) closeSandboxModal();
   });
 

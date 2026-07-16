@@ -1,20 +1,36 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Web Terminal</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d1a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RR">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <title>Remote Rider</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <div id="sidebar">
     <div id="sidebar-header">
-      <div id="sidebar-title">Workspaces</div>
+      <div id="sidebar-title">RR</div>
       <div id="sidebar-actions">
+        <button id="send-keys-btn" title="Toggle terminal keys">⌨</button>
+        <button id="fullscreen-btn" title="Toggle fullscreen">⛶</button>
         <button id="update-remotes-btn" title="Update all remotes">Update</button>
         <button id="new-sandbox-btn" title="New sandbox workspace">⬡</button>
         <button id="add-session-btn" title="Add workspace">+</button>
       </div>
     </div>
     <div id="session-list"></div>
+    <div id="keys-panel" class="hidden">
+      <div id="keys-target" class="muted-note"></div>
+      <div id="keys-grid"></div>
+      <div id="keys-flash" class="muted-note"></div>
+    </div>
   </div>
   <div id="main">
     <div id="tabs"></div>

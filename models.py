@@ -32,6 +32,13 @@ class TmuxKillRequest(BaseModel):
     port: int = Field(default=7000, ge=1, le=65535)
 
 
+class TmuxSendKeysRequest(BaseModel):
+    host: str
+    session: str = Field(min_length=1, max_length=120)
+    key: str = Field(min_length=1, max_length=20)
+    port: int = Field(default=7000, ge=1, le=65535)
+
+
 class StartFilesServiceRequest(BaseModel):
     port: int | None = Field(default=None, ge=1, le=65535)
     root_path: str | None = None

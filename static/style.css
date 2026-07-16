@@ -589,6 +589,56 @@ body { display: flex; height: 100vh; background: #0d0d1a; color: #eee; font-fami
   padding: 1rem;
 }
 #update-modal.open { display: flex; }
+
+/* Keyboard button switches the left panel to the keypad — make it prominent. */
+#send-keys-btn {
+  background: #2a2f4a;
+  border: 1px solid #45507a;
+  color: #dfe6ff;
+  height: 2.1rem;
+  min-width: 2.4rem;
+  padding: 0 0.4rem;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  font-size: 1.9rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#send-keys-btn.active { background: #2f6f55; border-color: #47a07a; }
+#fullscreen-btn {
+  background: #29406c;
+  border: 1px solid #45629a;
+  color: #fff;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+#keys-panel { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.2rem 0; }
+#keys-target { color: #9aa4c2; font-size: 0.78rem; }
+#keys-flash { color: #8fdfb8; font-size: 0.78rem; min-height: 1rem; }
+#keys-grid { display: flex; flex-direction: column; gap: 0.45rem; }
+.keys-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem; }
+.key-btn {
+  padding: 0.9rem 0.3rem;
+  min-height: 3rem;
+  font-size: 1rem;
+  font-family: monospace;
+  color: #eef2f8;
+  background: #1d2540;
+  border: 1px solid #3b4670;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.key-btn:hover { background: #283357; }
+.key-btn:active, .key-btn.flash { background: #2f6f55; border-color: #47a07a; }
+
 #update-card {
   width: min(46rem, 100%);
   max-height: 80vh;
