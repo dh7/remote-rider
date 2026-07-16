@@ -48,6 +48,30 @@ const panelList = document.getElementById('panel-list');
 const panelServices = document.getElementById('panel-services');
 const panelServicesNote = document.getElementById('panel-services-note');
 let saveSessionsTimer = null;
+let viewportUpdateRaf = 0;
+
+function updateViewportMetrics() {
+  if (viewportUpdateRaf) cancelAnimationFrame(viewportUpdateRaf);
+  viewportUpdateRaf = requestAnimationFrame(() => {
+    viewportUpdateRaf = 0;
+    const vv = window.visualViewport;
+    const height = Math.max(1, Math.round(vv?.height || window.innerHeight || document.documentElement.clientHeight));
+    const offsetTop = Math.max(0, Math.round(vv?.offsetTop || 0));
+    const root = document.documentElement;
+    root.style.setProperty('--rr-viewport-height', `${height}px`);
+    root.style.setProperty('--rr-viewport-offset-top', `${offsetTop}px`);
+  });
+}
+
+function installViewportResizeHandling() {
+  updateViewportMetrics();
+  window.addEventListener('resize', updateViewportMetrics, { passive: true });
+  window.addEventListener('orientationchange', updateViewportMetrics, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateViewportMetrics, { passive: true });
+    window.visualViewport.addEventListener('scroll', updateViewportMetrics, { passive: true });
+  }
+}
 
 function loadUIState() {
   try {
@@ -2018,6 +2042,7 @@ async function submitSandboxModal() {
 }
 
 async function init() {
+  installViewportResizeHandling();
   loadUIState();
   await loadSessionTemplates();
   await loadProfilesFromBootstrap();
