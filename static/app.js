@@ -193,9 +193,8 @@ function closeUpdateModal() {
 
 // ── Terminal keypad (send F-keys / control keys to the active tmux session) ──
 const KEYPAD_KEYS = [
-  ['F1', 'F2', 'F3', 'F4'],
-  ['F5', 'F6', 'F7', 'F8'],
-  ['F9', 'F10', 'F11', 'F12'],
+  [['win-prev', '◀ Prev'], ['win-next', 'Next ▶'], ['win-new', '＋ New']],
+  [['scroll', 'Scroll'], ['detach', 'Detach']],
   [['Escape', 'Esc'], ['Tab', 'Tab'], ['Enter', 'Enter'], ['C-c', '^C']],
   [['Left', '←'], ['Up', '↑'], ['Down', '↓'], ['Right', '→']],
 ];
@@ -244,7 +243,9 @@ function setKeysMode(on) {
   state.keysMode = on;
   document.getElementById('session-list').classList.toggle('hidden', on);
   document.getElementById('keys-panel').classList.toggle('hidden', !on);
-  document.getElementById('send-keys-btn').classList.toggle('active', on);
+  const sw = document.getElementById('send-keys-btn');
+  sw.classList.toggle('on', on);
+  sw.setAttribute('aria-checked', on ? 'true' : 'false');
   if (on) {
     const server = activeServer();
     document.getElementById('keys-flash').textContent = '';
@@ -266,6 +267,15 @@ function toggleFullscreen() {
   const isFull = document.fullscreenElement || document.webkitFullscreenElement;
   if (!isFull && req) req.call(el);
   else if (isFull && exit) exit.call(document);
+}
+
+function setRrMenu(show) {
+  document.getElementById('rr-menu').classList.toggle('hidden', !show);
+}
+
+function setSidebarCollapsed(on) {
+  document.body.classList.toggle('sidebar-collapsed', on);
+  try { localStorage.setItem('rr_sidebar_collapsed', on ? '1' : ''); } catch (_) {}
 }
 
 async function sendKey(key, btn) {
@@ -2051,6 +2061,18 @@ async function init() {
   });
   document.getElementById('send-keys-btn').onclick = toggleKeysMode;
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
+  document.getElementById('sidebar-collapse').onclick = () => setSidebarCollapsed(true);
+  document.getElementById('sidebar-reveal').onclick = () => setSidebarCollapsed(false);
+  const rrMenuBtn = document.getElementById('rr-menu-btn');
+  rrMenuBtn.onclick = (e) => {
+    e.stopPropagation();
+    setRrMenu(document.getElementById('rr-menu').classList.contains('hidden'));
+  };
+  document.getElementById('rr-menu').addEventListener('click', () => setRrMenu(false));
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('rr-menu-wrap').contains(e.target)) setRrMenu(false);
+  });
+  try { if (localStorage.getItem('rr_sidebar_collapsed')) setSidebarCollapsed(true); } catch (_) {}
   document.getElementById('sandbox-cancel').onclick = closeSandboxModal;
   document.getElementById('sandbox-submit').onclick = submitSandboxModal;
   document.getElementById('sandbox-modal').addEventListener('click', (e) => {

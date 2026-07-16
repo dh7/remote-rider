@@ -76,11 +76,13 @@ from storage import (
 )
 from tmux import (
     SEND_KEY_ALLOWLIST,
+    TMUX_ACTIONS,
     _fetch_remote_agents,
     _fetch_remote_tmux_sessions,
     _kill_tmux_session,
     _list_local_agents,
     _list_tmux_sessions,
+    _run_tmux_action,
     _send_keys_tmux,
     _start_agent_local,
     _start_remote_agent,
@@ -118,6 +120,10 @@ app.include_router(workspace_builtins_router)
 async def add_clipboard_permissions_policy(request, call_next):
     response = await call_next(request)
     response.headers["Permissions-Policy"] = "clipboard-read=*, clipboard-write=*"
+    # Force revalidation of UI assets so browsers never serve a stale bundle
+    # after a deploy (they still get 304s when unchanged via etag/last-modified).
+    if request.url.path.startswith("/static"):
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 
@@ -709,8 +715,8 @@ def tmux_send_keys(payload: TmuxSendKeysRequest) -> dict[str, Any]:
     key = payload.key.strip()
     if not session:
         raise HTTPException(status_code=400, detail="session is required")
-    tmux_key = SEND_KEY_ALLOWLIST.get(key)
-    if tmux_key is None:
+    is_action = key in TMUX_ACTIONS
+    if not is_action and key not in SEND_KEY_ALLOWLIST:
         raise HTTPException(status_code=400, detail=f"unsupported key: {key}")
 
     if _is_local_host(host):
@@ -718,9 +724,10 @@ def tmux_send_keys(payload: TmuxSendKeysRequest) -> dict[str, Any]:
             return {"status": "skipped", "reason": "tmux not available", "host": host, "session": session}
         if not _tmux_session_exists(session):
             return {"status": "not_found", "host": host, "session": session}
-        if _send_keys_tmux(session, tmux_key):
+        ok = _run_tmux_action(session, key) if is_action else _send_keys_tmux(session, SEND_KEY_ALLOWLIST[key])
+        if ok:
             return {"status": "sent", "host": host, "session": session, "key": key}
-        return {"status": "error", "reason": "send-keys failed", "host": host, "session": session}
+        return {"status": "error", "reason": "tmux command failed", "host": host, "session": session}
 
     url = f"http://{host}:{payload.port}/tmux/send-keys"
     req = UrlRequest(

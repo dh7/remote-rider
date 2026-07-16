@@ -11,18 +11,25 @@
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <title>Remote Rider</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
   <div id="sidebar">
     <div id="sidebar-header">
-      <div id="sidebar-title">RR</div>
+      <div id="rr-menu-wrap">
+        <button id="rr-menu-btn" title="Menu">RR <span class="caret">▾</span></button>
+        <div id="rr-menu" class="hidden">
+          <button id="update-remotes-btn">Update remotes</button>
+          <button id="new-sandbox-btn">New sandbox</button>
+          <button id="add-session-btn">Add workspace</button>
+        </div>
+      </div>
       <div id="sidebar-actions">
-        <button id="send-keys-btn" title="Toggle terminal keys">⌨</button>
+        <button id="send-keys-btn" class="mode-switch" role="switch" aria-checked="false" title="Switch: workspaces / keys">
+          <span class="switch-thumb">⌨</span>
+        </button>
         <button id="fullscreen-btn" title="Toggle fullscreen">⛶</button>
-        <button id="update-remotes-btn" title="Update all remotes">Update</button>
-        <button id="new-sandbox-btn" title="New sandbox workspace">⬡</button>
-        <button id="add-session-btn" title="Add workspace">+</button>
+        <button id="sidebar-collapse" title="Hide panel">⟨</button>
       </div>
     </div>
     <div id="session-list"></div>
@@ -32,6 +39,7 @@
       <div id="keys-flash" class="muted-note"></div>
     </div>
   </div>
+  <button id="sidebar-reveal" title="Show panel">☰</button>
   <div id="main">
     <div id="tabs"></div>
     <div id="frames"></div>
@@ -236,6 +244,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 </html>

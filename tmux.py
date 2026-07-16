@@ -66,6 +66,32 @@ def _send_keys_tmux(session: str, tmux_key: str) -> bool:
     return result.returncode == 0
 
 
+# byobu/tmux navigation the mobile keypad can drive (the byobu F-key functions),
+# run as real tmux commands targeted at the session so they act like a byobu keypress.
+# Each value is (tmux subcommand args, target flag).
+TMUX_ACTIONS: dict[str, tuple[list[str], str]] = {
+    "win-prev": (["previous-window"], "-t"),
+    "win-next": (["next-window"], "-t"),
+    "win-new": (["new-window"], "-t"),
+    "scroll": (["copy-mode"], "-t"),
+    "detach": (["detach-client"], "-s"),
+}
+
+
+def _run_tmux_action(session: str, action: str) -> bool:
+    spec = TMUX_ACTIONS.get(action)
+    if spec is None or not _tmux_session_exists(session):
+        return False
+    cmd, flag = spec
+    result = subprocess.run(
+        ["tmux", *cmd, flag, session],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def _list_tmux_sessions() -> list[str]:
     if not shutil.which("tmux"):
         return []
