@@ -1,0 +1,15 @@
+[Unit]
+Description=Remote Rider stack (byobu terminals + hub/monitor/logs/files; control hub on the control host)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/code/remote-rider
+ExecStart=%h/code/remote-rider/boot-stack.sh
+# On stop/restart, systemd SIGTERMs every process in the unit cgroup.
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target

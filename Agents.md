@@ -193,18 +193,31 @@ If a user reports "copy stopped working" in a Terminal tab, check whether a mous
 
 ## Post-Reboot Recovery on Remote Machines
 
-`start-remote.sh` is not yet under systemd, so after a machine reboot (or an SSH-session-kill of the process that launched it) all five services — ttyd, hub, monitor, logs, fileserver — go down together. Symptoms: dashboard shows a broken workspace, `/services/proxy` returns empty, ttyd port is either dead or occupied by the OS-default `ttyd.service` (Ubuntu ships one that binds `127.0.0.1:7681 -O login`, which is *not* what remote-rider wants — it's a red herring, ignore it).
+The stack is under **systemd** as a per-user unit, so after a reboot it restarts automatically — no manual step. The unit runs `boot-stack.sh`, which waits for the Tailscale IP and then starts the right mode for the machine: **control + remote** on the control host (netochka), **remote-only** everywhere else.
 
-Restart cleanly, detached from the launching SSH session:
+Install / manage (see `deploy/remote-rider.service`, `install-service.sh`, `boot-stack.sh`):
 
 ```bash
 ssh <machine>
+cd ~/code/remote-rider
+git pull --ff-only
+./install-service.sh                  # idempotent: installs unit, enables linger + byobu mouse-off
+systemctl --user restart remote-rider # bring the stack up now / restart it
+systemctl --user status  remote-rider # ttyd + hub + monitor + logs + fileserver, one cgroup
+journalctl --user -u remote-rider -e  # boot/start logs
+```
+
+Requires user **linger** (`loginctl enable-linger <user>` — the installer does this when permitted) so the unit starts at boot with no login session. The unit is `Type=oneshot` + `RemainAfterExit=yes`; `systemctl --user stop|restart` tears the whole cgroup down cleanly. Deployed on: **netochka** (control), **gx10**, **image-store**, **pi**.
+
+Manual fallback (only if systemd is unavailable), detached from the launching SSH session:
+
+```bash
 cd ~/code/remote-rider
 setsid nohup bash start-remote.sh > logs/start-remote.log 2>&1 < /dev/null &
 disown
 ```
 
-`setsid nohup … < /dev/null &` + `disown` is the exact recipe — a plain `nohup &` still dies when the SSH ControlMaster tears down. Verify:
+`setsid nohup ... < /dev/null &` + `disown` is the exact recipe — a plain `nohup &` still dies when the SSH ControlMaster tears down. Ubuntu's OS-default `ttyd.service` (binds `127.0.0.1:7681 -O login`) is *not* remote-rider's — ignore it. Verify:
 
 ```bash
 tail -8 logs/start-remote.log
@@ -214,13 +227,13 @@ for f in logs/pids/*.pid; do
 done
 ```
 
-Same recipe for the gx10 model manager (`~/code/vlmtest/model_manager.py` on port 8999) — it also dies with the SSH session that launched it. Use `python3` (system, not the missing `~/venv/bin/python`).
+The gx10 model manager (`~/code/vlmtest/model_manager.py` on port 8999) also dies with the SSH session that launched it; until it has its own unit, use the same detached recipe with `python3` (system, not the missing `~/venv/bin/python`).
 
 ## Terminal Tabs Should Load `byobu-tmux`, Not Bare `tmux`
 
-`terminal-entry.sh` invokes `byobu-tmux new-session -A -s "$SESSION"` so the tmux server boots with byobu's status bar / keybindings loaded correctly from the start. Do *not* try to source byobu's tmux profile into an already-running plain tmux server (`tmux source-file /usr/share/byobu/profiles/tmux`) — it works partially but throws "invalid style" warnings because byobu's color/statusrc environment is only fully wired when byobu launches the server itself.
+`terminal-entry.sh` invokes `byobu-tmux new-session -A -s "$SESSION"` (falling back to bare `tmux` only where byobu is not installed) so the tmux server boots with byobu's status bar / keybindings loaded from the start. **The byobu profile is applied only when tmux starts the server**, so to convert an already-running plain-tmux server you must `tmux kill-server` (sessions are recreated on demand by ttyd) or reboot. Do *not* `tmux source-file /usr/share/byobu/profiles/tmux` into a live plain server — it works partially but throws "invalid style" warnings because byobu's color/statusrc environment is only fully wired when byobu launches the server itself.
 
-Prerequisite on any machine using this: `~/.byobu/keybindings.tmux` must contain `set -g mouse off`. Byobu enables tmux mouse mode by default, which then intercepts browser text selection in the ttyd iframe — you lose the ✂ copy path. The `mouse off` override plus the Shift+drag rule (see previous section) covers all cases.
+Prerequisite on any machine using this: `~/.byobu/keybindings.tmux` must contain `set -g mouse off` — **`install-service.sh` adds this automatically**. Byobu enables tmux mouse mode by default, which then intercepts browser text selection in the ttyd iframe — you lose the ✂ copy path. The `mouse off` override plus the Shift+drag rule (see previous section) covers all cases.
 
 If someone previously reverted this and switched back to plain `tmux` because of a copy/paste regression: it was almost certainly the mouse-mode issue above, not `byobu-tmux` itself. Re-apply the `byobu-tmux` swap along with the `~/.byobu/keybindings.tmux` override.
 
