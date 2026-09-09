@@ -20,5 +20,16 @@
       { "label": "Logs", "port": 8002 },
       { "label": "Files", "port": 8080, "path": "/files" }
     ]
+  },
+  {
+    "name": "hal5090",
+    "display": "hal5090",
+    "ip": "100.94.124.42",
+    "panels": [
+      { "label": "Terminal", "port": 7681 },
+      { "label": "Monitor", "port": 8001 },
+      { "label": "Logs", "port": 8002 },
+      { "label": "Files", "port": 8080, "path": "/files" }
+    ]
   }
 ]
