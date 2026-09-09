@@ -15,6 +15,11 @@ START = Path(_os.environ["RR_FILES_ROOT"]).expanduser().resolve() if _os.environ
 BOUNDARY = Path("/").resolve()
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30
 
+# File kinds that get an inline preview instead of the text editor.
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif"}
+VIDEO_EXTS = {".mp4", ".webm", ".mov", ".m4v", ".mkv", ".ogv"}
+AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".opus"}
+
 STYLE = """
 <style>
   * { box-sizing: border-box; }
@@ -31,6 +36,8 @@ STYLE = """
 
   .crumbs { white-space: nowrap; overflow-x: auto; overflow-y: hidden; }
   .crumbs a { display: inline; padding: 0; }
+  .crumbs-wrap { display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1; }
+  .home-btn { flex: 0 0 auto; padding: 0.3rem 0.55rem; font-size: 1rem; line-height: 1; text-decoration: none; }
   .topbar {
     display: flex;
     align-items: center;
@@ -208,6 +215,52 @@ STYLE = """
   .dropzone.drag { border-color: #6aa0ff; background: #1b2740; color: #cfe0ff; }
   .dropzone .hint { margin-top: 0.5rem; font-size: 0.82rem; }
   .upload-status { margin-top: 0.6rem; color: #9aa4b2; font-size: 0.82rem; }
+
+  .row { display: flex; align-items: center; gap: 0.4rem; }
+  .row > a { flex: 1; min-width: 0; }
+  .row-del {
+    background: none;
+    border: none;
+    color: #b07a7f;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 0.9rem;
+    padding: 2px 7px;
+    opacity: 0.55;
+    flex: 0 0 auto;
+  }
+  .row-del:hover { opacity: 1; color: #ff7b83; }
+  .vid { color: #f9b; }
+  .snd { color: #c9f; }
+
+  .up-results { margin-top: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .up-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #16181f;
+    border: 1px solid #2f3644;
+    border-radius: 5px;
+    padding: 0.35rem 0.5rem;
+  }
+  .up-path { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; color: #cfe0ff; font-size: 0.82rem; }
+  .copy-btn {
+    background: #2f446f;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.55rem;
+    border-radius: 4px;
+    flex: 0 0 auto;
+  }
+  .copy-btn:hover { filter: brightness(1.15); }
+  .copy-btn.done { background: #2f7d43; }
+
+  .media-wrap { display: flex; align-items: center; justify-content: center; padding: 1rem; min-height: 60vh; }
+  .media-wrap video { max-width: 100%; max-height: 82vh; }
+  .media-wrap audio { width: min(560px, 90vw); }
 </style>
 """
 
@@ -375,14 +428,15 @@ def browse(request: Request, path: str = "") -> HTMLResponse:
     writable = _within_start(target)
     statuses = _git_status_map(target)
     entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-    actions = f'<a class="btn ghost" href="/files?path=&force_home=1">start</a>'
     if writable:
-        actions += f'<a class="btn" href="/new-file?path={_q(path)}">Create File</a>'
+        actions = f'<a class="btn" href="/new-file?path={_q(path)}">Create File</a>'
+        actions += f'<a class="btn" href="/upload-form?path={_q(path)}">Upload</a>'
     else:
-        actions += '<span class="ro-note">read-only</span>'
+        actions = '<span class="ro-note">read-only</span>'
+    home = '<a class="btn ghost home-btn" href="/files?path=&force_home=1" title="Workspace home">🏠</a>'
     items = (
         '<div class="topbar">'
-        f'{breadcrumbs(path)}'
+        f'<div class="crumbs-wrap">{home}{breadcrumbs(path)}</div>'
         f'<div class="toolbar-actions">{actions}</div>'
         '</div><hr>'
     )
@@ -403,13 +457,48 @@ def browse(request: Request, path: str = "") -> HTMLResponse:
         if entry.is_dir():
             klass = "dir-hidden" if entry.name.startswith(".") else "dir"
             items += f'<a class="entry-row {klass}" href="/files?path={_q(rel)}">{badge}[dir] {name}</a>'
-        elif entry.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
-            items += f'<a class="entry-row img" href="/img?path={_q(rel)}" target="_blank">{badge}[img] {name}</a>'
+            continue
+
+        ext = entry.suffix.lower()
+        if ext in IMAGE_EXTS:
+            link = f'<a class="entry-row img" href="/img?path={_q(rel)}">{badge}[img] {name}</a>'
+        elif ext in VIDEO_EXTS:
+            link = f'<a class="entry-row vid" href="/media?path={_q(rel)}">{badge}[vid] {name}</a>'
+        elif ext in AUDIO_EXTS:
+            link = f'<a class="entry-row snd" href="/media?path={_q(rel)}">{badge}[snd] {name}</a>'
         else:
             klass = "file-hidden" if entry.name.startswith(".") else "file"
-            items += f'<a class="entry-row {klass}" href="/edit?path={_q(rel)}">{badge}{name}</a>'
+            link = f'<a class="entry-row {klass}" href="/edit?path={_q(rel)}">{badge}{name}</a>'
 
-    response = HTMLResponse(f"<html><head>{STYLE}</head><body>{items}</body></html>")
+        # Files inside the writable zone get an inline delete button (matches
+        # what /delete allows). Everything else is just the link.
+        if _within_start(entry):
+            attr = escape(rel, quote=True)
+            items += (
+                f'<div class="row">{link}'
+                f'<button class="row-del" data-path="{attr}" data-name="{name}" title="Delete">🗑</button>'
+                '</div>'
+            )
+        else:
+            items += link
+
+    script = """
+    <script>
+      document.querySelectorAll('.row-del').forEach(function (btn) {
+        btn.addEventListener('click', async function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!confirm('Delete ' + btn.dataset.name + '?')) return;
+          try {
+            const res = await fetch('/delete?path=' + encodeURIComponent(btn.dataset.path), { method: 'POST' });
+            if (res.ok) { location.reload(); }
+            else { alert('Delete failed: ' + (await res.text())); }
+          } catch (err) { alert('Delete failed: ' + err); }
+        });
+      });
+    </script>
+    """
+    response = HTMLResponse(f"<html><head>{STYLE}</head><body>{items}{script}</body></html>")
     _set_context_cookies(response, view="files", dir_path=path)
     return response
 
@@ -427,6 +516,7 @@ def new_file_form(path: str = "") -> HTMLResponse:
         {breadcrumbs(path)}
         <div class="toolbar-actions">
           <a class="btn ghost" href="/files?path={_q(path)}">Back</a>
+          <a class="btn ghost" href="/upload-form?path={_q(path)}">Upload</a>
         </div>
       </div>
       <hr>
@@ -434,58 +524,172 @@ def new_file_form(path: str = "") -> HTMLResponse:
         <input class="save-path" type="text" name="new_path" placeholder="new file path" autofocus>
         <button class="btn" type="submit">Create File</button>
       </form>
+    </body></html>
+    """
+    response = HTMLResponse(form)
+    _set_context_cookies(response, view="files", dir_path=path)
+    return response
 
+
+@app.get("/upload-form", response_class=HTMLResponse)
+def upload_form(path: str = "") -> HTMLResponse:
+    directory = _safe(path)
+    if not directory.exists() or not directory.is_dir():
+        raise HTTPException(status_code=404, detail="Directory not found")
+    _require_writable(directory)
+
+    page = f"""
+    <html><head>{STYLE}</head><body>
+      <div class="topbar">
+        {breadcrumbs(path)}
+        <div class="toolbar-actions">
+          <a class="btn ghost" href="/files?path={_q(path)}">Back</a>
+        </div>
+      </div>
+      <hr>
       <div id="dropzone" class="dropzone">
-        <div><strong>Drop files here</strong> to upload into this folder</div>
-        <div class="hint">or <button class="btn ghost" type="button" id="pick">choose files</button></div>
+        <div><strong>Drop files here</strong>, paste an image, or</div>
+        <div class="hint"><button class="btn ghost" type="button" id="pick">choose files</button></div>
         <input id="file-input" type="file" multiple class="hidden">
       </div>
       <div id="upload-status" class="upload-status"></div>
+      <div id="up-results" class="up-results"></div>
 
       <script>
         const uploadDir = {json.dumps(path)};
         const dz = document.getElementById('dropzone');
         const fileInput = document.getElementById('file-input');
         const statusEl = document.getElementById('upload-status');
+        const resultsEl = document.getElementById('up-results');
+        const usedNames = new Set();
+
+        const extByMime = {{
+          'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
+          'image/svg+xml': 'svg', 'image/bmp': 'bmp', 'image/avif': 'avif', 'image/x-icon': 'ico'
+        }};
+
+        function pad(n) {{ return String(n).padStart(2, '0'); }}
+        function stamp() {{
+          const d = new Date();
+          return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+                 '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+        }}
+        function canonicalName(file) {{
+          let ext = extByMime[file.type];
+          if (!ext && file.name && file.name.includes('.')) ext = file.name.split('.').pop().toLowerCase();
+          if (!ext) ext = 'png';
+          const base = 'pasted-' + stamp();
+          let name = base + '.' + ext, i = 2;
+          while (usedNames.has(name)) {{ name = base + '-' + i + '.' + ext; i++; }}
+          usedNames.add(name);
+          return name;
+        }}
+
+        async function copyText(text) {{
+          try {{
+            if (navigator.clipboard && navigator.clipboard.writeText) {{
+              await navigator.clipboard.writeText(text);
+              return true;
+            }}
+          }} catch (e) {{ /* fall through to legacy path */ }}
+          try {{
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return ok;
+          }} catch (e) {{ return false; }}
+        }}
+
+        function addResult(absPath) {{
+          const row = document.createElement('div');
+          row.className = 'up-row';
+          const code = document.createElement('code');
+          code.className = 'up-path';
+          code.textContent = absPath;
+          const btn = document.createElement('button');
+          btn.className = 'copy-btn';
+          btn.textContent = '📋 Copy';
+          btn.addEventListener('click', async () => {{
+            const ok = await copyText(absPath);
+            btn.textContent = ok ? '✓ Copied' : '⚠ Copy failed';
+            btn.classList.toggle('done', ok);
+            setTimeout(() => {{ btn.textContent = '📋 Copy'; btn.classList.remove('done'); }}, 1600);
+          }});
+          row.appendChild(code);
+          row.appendChild(btn);
+          resultsEl.prepend(row);
+        }}
 
         document.getElementById('pick').addEventListener('click', () => fileInput.click());
         dz.addEventListener('click', (e) => {{ if (e.target === dz || e.target.tagName === 'STRONG' || e.target.tagName === 'DIV') fileInput.click(); }});
-        fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
+        fileInput.addEventListener('change', () => uploadFiles(fileInput.files, false));
 
         ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, (e) => {{ e.preventDefault(); dz.classList.add('drag'); }}));
         ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, (e) => {{ e.preventDefault(); dz.classList.remove('drag'); }}));
         ['dragover', 'drop'].forEach(ev => window.addEventListener(ev, (e) => e.preventDefault()));
-        dz.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
+        dz.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files, false));
 
-        async function uploadFiles(files) {{
+        window.addEventListener('paste', (e) => {{
+          const items = (e.clipboardData && e.clipboardData.items) || [];
+          const files = [];
+          for (const it of items) {{
+            if (it.kind === 'file') {{ const f = it.getAsFile(); if (f) files.push(f); }}
+          }}
+          if (files.length) {{ e.preventDefault(); uploadFiles(files, true); }}
+        }});
+
+        async function uploadFiles(files, fromPaste) {{
           const list = Array.from(files || []);
           if (!list.length) return;
           let done = 0, failed = 0;
           for (const file of list) {{
-            statusEl.textContent = `Uploading ${{file.name}} (${{done + failed + 1}}/${{list.length}})...`;
+            const name = fromPaste ? canonicalName(file) : file.name;
+            statusEl.textContent = `Uploading ${{name}} (${{done + failed + 1}}/${{list.length}})...`;
             try {{
-              const res = await fetch('/upload?path=' + encodeURIComponent(uploadDir) + '&name=' + encodeURIComponent(file.name), {{
+              const res = await fetch('/upload?path=' + encodeURIComponent(uploadDir) + '&name=' + encodeURIComponent(name), {{
                 method: 'POST',
                 headers: {{ 'content-type': 'application/octet-stream' }},
                 body: file,
               }});
-              if (res.ok) {{ done++; }}
-              else {{ failed++; statusEl.textContent = `Failed ${{file.name}}: ${{await res.text()}}`; }}
-            }} catch (err) {{ failed++; statusEl.textContent = `Failed ${{file.name}}: ${{err}}`; }}
+              if (res.ok) {{
+                done++;
+                const data = await res.json();
+                addResult('/' + data.path);
+              }} else {{
+                failed++;
+                statusEl.textContent = `Failed ${{name}}: ${{await res.text()}}`;
+              }}
+            }} catch (err) {{ failed++; statusEl.textContent = `Failed ${{name}}: ${{err}}`; }}
           }}
-          if (!failed) {{
-            statusEl.textContent = `Uploaded ${{done}} file(s). Opening folder...`;
-            window.location.href = '/files?path=' + encodeURIComponent(uploadDir);
-          }} else {{
-            statusEl.textContent = `Uploaded ${{done}}, failed ${{failed}}.`;
-          }}
+          statusEl.textContent = failed
+            ? `Uploaded ${{done}}, failed ${{failed}}. Paths below.`
+            : `Uploaded ${{done}} file(s). Paths below (folder unchanged until you go Back).`;
         }}
       </script>
     </body></html>
     """
-    response = HTMLResponse(form)
+    response = HTMLResponse(page)
     _set_context_cookies(response, view="files", dir_path=path)
     return response
+
+
+def _preview_topbar(target: Path) -> str:
+    """Breadcrumbs to the containing folder + a Back button, for preview pages."""
+    parent_rel = _rel(target.parent)
+    if parent_rel == ".":
+        parent_rel = ""
+    return (
+        '<div class="topbar">'
+        f'{breadcrumbs(parent_rel)}'
+        f'<div class="toolbar-actions"><a class="btn ghost" href="/files?path={_q(parent_rel)}">Back</a></div>'
+        '</div><hr>'
+    )
 
 
 @app.get("/img", response_class=HTMLResponse)
@@ -494,8 +698,27 @@ def view_image(path: str) -> str:
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="Image not found")
     rel = _rel(target)
-    return f"""<html><head>{STYLE}</head><body style="margin:0;padding:0;background:#000">
-    <img src="/raw?path={_q(rel)}" style="max-width:100%;max-height:100vh;display:block;margin:auto">
+    return f"""<html><head>{STYLE}</head><body>
+    {_preview_topbar(target)}
+    <div class="media-wrap"><img src="/raw?path={_q(rel)}" style="max-width:100%;max-height:82vh;display:block;margin:auto"></div>
+    </body></html>"""
+
+
+@app.get("/media", response_class=HTMLResponse)
+def view_media(path: str) -> str:
+    target = _safe(path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Media not found")
+    rel = _rel(target)
+    ext = target.suffix.lower()
+    src = f"/raw?path={_q(rel)}"
+    if ext in AUDIO_EXTS:
+        player = f'<audio controls autoplay src="{src}">Your browser cannot play this audio.</audio>'
+    else:
+        player = f'<video controls autoplay playsinline src="{src}">Your browser cannot play this video.</video>'
+    return f"""<html><head>{STYLE}</head><body>
+    {_preview_topbar(target)}
+    <div class="media-wrap">{player}</div>
     </body></html>"""
 
 
