@@ -23,8 +23,9 @@ const state = {
   discoveredServices: [],
   serviceSnapshotByHost: {},
   controlSessionsAvailable: false,
-  controlSessionsSignature: '',
+  sessionsVersion: null,
   pendingDeletedSessions: new Set(),
+  dirtySessions: new Set(),
   keysMode: false,
 };
 
@@ -103,6 +104,16 @@ function saveProfiles() {
   queueSessionSaveToControl();
 }
 
+// Adopt the control server's sessions verbatim as the in-memory view. The
+// server is the source of truth; localStorage is only a last-known-good cache.
+function adoptServerSessions(sessions, version) {
+  state.sessions = sessions;
+  state.sessionsVersion = version ?? null;
+  try {
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
+  } catch (_) {}
+}
+
 function mergeSessionForControlSave(localSession, remoteSession) {
   if (!localSession) return remoteSession;
   if (!remoteSession) return localSession;
@@ -111,6 +122,38 @@ function mergeSessionForControlSave(localSession, remoteSession) {
     merged.project = remoteSession.project;
   }
   return merged;
+}
+
+// Reconcile a rejected write against the server's current state (409 path
+// only). Rules: local order always wins (reordering is a local action);
+// content comes from whoever actually changed it — local for sessions the user
+// edited (dirty) or created (not yet on the server), server otherwise (so a
+// concurrent agent tab-add on an untouched session survives); sessions created
+// elsewhere are appended.
+function rebaseOntoServer(serverSessions) {
+  const remote = Array.isArray(serverSessions) ? serverSessions : [];
+  const remoteByName = new Map(remote.map((s) => [s.name, s]));
+  const merged = [];
+  const seen = new Set();
+  state.sessions.forEach((localSession) => {
+    if (!localSession || !localSession.name) return;
+    if (state.pendingDeletedSessions.has(localSession.name)) return;
+    const remoteSession = remoteByName.get(localSession.name);
+    if (!remoteSession) {
+      merged.push(localSession); // created locally, not yet saved
+    } else if (state.dirtySessions.has(localSession.name)) {
+      merged.push(mergeSessionForControlSave(localSession, remoteSession)); // user edited it: local content wins
+    } else {
+      merged.push(remoteSession); // untouched locally: server content is truth
+    }
+    seen.add(localSession.name);
+  });
+  remote.forEach((remoteSession) => {
+    if (!remoteSession || !remoteSession.name || seen.has(remoteSession.name)) return;
+    if (state.pendingDeletedSessions.has(remoteSession.name)) return;
+    merged.push(remoteSession);
+  });
+  state.sessions = merged;
 }
 
 async function loadSessionsFromControl() {
@@ -123,10 +166,13 @@ async function loadSessionsFromControl() {
     const payload = await response.json();
     if (!Array.isArray(payload.sessions)) {
       state.controlSessionsAvailable = false;
-      return [];
+      return null;
     }
     state.controlSessionsAvailable = true;
-    return payload.sessions.map(normalizeProfile).filter(Boolean);
+    return {
+      sessions: payload.sessions.map(normalizeProfile).filter(Boolean),
+      version: payload.version ?? null,
+    };
   } catch (_) {
     state.controlSessionsAvailable = false;
     return null;
@@ -155,36 +201,38 @@ async function loadControlContext() {
   }
 }
 
-async function flushSessionsToControl() {
+// Write the browser's intended session list through to the server verbatim
+// (order included). The server is authoritative; a stale write is rejected
+// with 409, after which we rebase onto the server's current state and retry.
+async function flushSessionsToControl(retries = 2) {
   if (!state.controlSessionsAvailable) return;
   try {
-    const latest = await loadSessionsFromControl();
-    if (latest === null) return;
-    let sessionsToSave = state.sessions;
-    if (Array.isArray(latest)) {
-      const localByName = new Map(state.sessions.map((session) => [session.name, session]));
-      const merged = [];
-      const seen = new Set();
-      latest.forEach((remoteSession) => {
-        if (!remoteSession || !remoteSession.name || state.pendingDeletedSessions.has(remoteSession.name)) return;
-        merged.push(mergeSessionForControlSave(localByName.get(remoteSession.name), remoteSession));
-        seen.add(remoteSession.name);
-      });
-      state.sessions.forEach((localSession) => {
-        if (!localSession || !localSession.name || seen.has(localSession.name)) return;
-        if (state.pendingDeletedSessions.has(localSession.name)) return;
-        merged.push(localSession);
-      });
-      sessionsToSave = merged;
-    }
-    await fetch('/sessions', {
+    const response = await fetch('/sessions', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessions: sessionsToSave }),
+      body: JSON.stringify({ sessions: state.sessions, base_version: state.sessionsVersion }),
     });
-    state.sessions = sessionsToSave;
-    state.pendingDeletedSessions.clear();
-    state.controlSessionsSignature = JSON.stringify(state.sessions);
+
+    if (response.status === 409 && retries > 0) {
+      const body = await response.json().catch(() => null);
+      if (body && Array.isArray(body.sessions)) {
+        rebaseOntoServer(body.sessions.map(normalizeProfile).filter(Boolean));
+        state.sessionsVersion = body.version ?? null;
+        renderSidebar();
+        return flushSessionsToControl(retries - 1);
+      }
+      return;
+    }
+
+    if (response.ok) {
+      const body = await response.json().catch(() => null);
+      state.sessionsVersion = body && body.version != null ? body.version : state.sessionsVersion;
+      state.pendingDeletedSessions.clear();
+      state.dirtySessions.clear();
+      try {
+        localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
+      } catch (_) {}
+    }
   } catch (_) {}
 }
 
@@ -199,15 +247,13 @@ function queueSessionSaveToControl() {
 
 async function refreshSessionsFromControlIfChanged() {
   if (!state.controlSessionsAvailable) return;
-  const sessions = await loadSessionsFromControl();
-  if (!sessions) return;
-  const signature = JSON.stringify(sessions);
-  if (signature === state.controlSessionsSignature) return;
-  state.sessions = sessions;
-  state.controlSessionsSignature = signature;
-  try {
-    localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
-  } catch (_) {}
+  // Skip the adopt while a local write is pending, so the poll can't stomp an
+  // edit that hasn't been flushed yet.
+  if (saveSessionsTimer) return;
+  const result = await loadSessionsFromControl();
+  if (!result) return;
+  if (result.version != null && result.version === state.sessionsVersion) return;
+  adoptServerSessions(result.sessions, result.version);
   await reloadSessions(state.activeSession);
 }
 
@@ -510,36 +556,27 @@ async function loadProfilesFromBootstrap() {
     : (await fetch('/machines').then((r) => r.json()).catch(() => []))
         .map(normalizeProfile)
         .filter(Boolean);
-  const controlSessions = controlContext ? controlContext.sessions : await loadSessionsFromControl();
-  if (controlSessions && controlSessions.length) {
-    state.sessions = controlSessions;
-    state.controlSessionsSignature = JSON.stringify(state.sessions);
-    try {
-      localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
-    } catch (_) {}
+  // Server is the source of truth: pull sessions + version authoritatively.
+  const control = await loadSessionsFromControl();
+  if (control && control.sessions.length) {
+    adoptServerSessions(control.sessions, control.version);
     return;
   }
 
+  // Server unreachable OR empty: fall back to the localStorage cache, else the
+  // bootstrap machine list. Seed the server if it was reachable-but-empty.
+  const serverReachableEmpty = Boolean(control && control.sessions.length === 0);
   try {
     const raw = localStorage.getItem(PROFILES_KEY);
-    if (!raw) {
-      state.sessions = normalizedBootstrap;
-      saveProfiles();
-      return;
-    }
-    const parsed = JSON.parse(raw);
+    const parsed = raw ? JSON.parse(raw) : null;
     const localProfiles = Array.isArray(parsed) ? parsed.map(normalizeProfile).filter(Boolean) : [];
     state.sessions = localProfiles.length ? localProfiles : normalizedBootstrap;
-    state.controlSessionsSignature = JSON.stringify(state.sessions);
-    if (controlSessions && controlSessions.length === 0 && state.sessions.length) {
-      queueSessionSaveToControl();
-    }
   } catch (_) {
     state.sessions = normalizedBootstrap;
-    state.controlSessionsSignature = JSON.stringify(state.sessions);
-    if (controlSessions && controlSessions.length === 0 && state.sessions.length) {
-      queueSessionSaveToControl();
-    }
+  }
+  state.sessionsVersion = null;
+  if (serverReachableEmpty && state.sessions.length) {
+    queueSessionSaveToControl();
   }
 }
 
@@ -1288,6 +1325,7 @@ function savePanelEditor() {
   server.color = state.panelEditor.color;
   server.tabs = normalizePanels(state.panelEditor.panels);
   server.panels = server.tabs;
+  state.dirtySessions.add(server.name);
   saveProfiles();
   closePanelModal();
   reloadSessions(server.name);
@@ -1574,7 +1612,11 @@ async function closeTab(server, tab, endpoint) {
   if (session) {
     session.tabs = (session.tabs || []).filter((t) => t.id !== tab.id && t.label !== tab.label);
     session.panels = session.tabs;
-    state.controlSessionsSignature = JSON.stringify(state.sessions);
+    // The DELETE above already changed the server's authoritative copy; the
+    // next poll/flush reconciles via the version token. Mark dirty so a rebase
+    // keeps this removal, and cache the optimistic view so the UI doesn't
+    // flicker before the next sync.
+    state.dirtySessions.add(server.name);
     try { localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions)); } catch (_) {}
   }
 

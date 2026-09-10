@@ -698,6 +698,10 @@ body {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
 }
 #rr-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  white-space: nowrap;
   text-align: left;
   background: none;
   border: none;
@@ -708,6 +712,7 @@ body {
   font-size: 0.85rem;
 }
 #rr-menu button:hover { background: #223055; }
+#rr-menu .mi { flex: 0 0 1.2rem; text-align: center; font-size: 1rem; opacity: 0.9; }
 
 /* Retractable panel */
 #sidebar-reveal {

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from typing import Any
@@ -163,6 +164,14 @@ def _load_normalized_control_sessions() -> list[dict[str, Any]]:
 
 def _save_normalized_control_sessions(sessions: list[dict[str, Any]]) -> None:
     _save_control_sessions(sessions)
+
+
+def _sessions_version(sessions: list[dict[str, Any]]) -> str:
+    """Content-hash of the normalized session list, used as an optimistic-
+    concurrency token for GET/PUT /sessions. Order-sensitive (reordering must
+    change the version) but independent of JSON formatting / dict key order."""
+    payload = json.dumps(sessions, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 # ── Session templates ─────────────────────────────────────────────────────────

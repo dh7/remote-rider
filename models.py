@@ -55,6 +55,7 @@ class StartFilesServiceProxyRequest(BaseModel):
 
 class SessionsPutRequest(BaseModel):
     sessions: list[dict[str, Any]]
+    base_version: str | None = None
 
 
 class SessionTabUpsertRequest(BaseModel):

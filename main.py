@@ -6,7 +6,7 @@ from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import (
@@ -71,6 +71,7 @@ from storage import (
     _normalize_session_tab,
     _save_machine_inventory,
     _save_normalized_control_sessions,
+    _sessions_version,
     _set_terminal_session,
     _tab_slug,
 )
@@ -351,21 +352,39 @@ def session_templates() -> list[dict[str, Any]]:
 def sessions() -> dict[str, Any]:
     _require_control_api()
     with SESSIONS_LOCK:
+        normalized = _load_normalized_control_sessions()
         return {
-            "sessions": _load_normalized_control_sessions(),
+            "sessions": normalized,
+            "version": _sessions_version(normalized),
             "storage": str(HERE / "sessions.json"),
         }
 
 
 @app.put("/sessions")
-def replace_sessions(payload: SessionsPutRequest) -> dict[str, Any]:
+def replace_sessions(payload: SessionsPutRequest):
     _require_control_api()
     normalized = [s for s in (_normalize_control_session(row) for row in payload.sessions) if s]
     with SESSIONS_LOCK:
+        # Optimistic concurrency: reject a write based on a stale view so a
+        # browser reorder can't clobber a tab an agent just added. The client
+        # rebases onto the returned current state and retries.
+        if payload.base_version is not None:
+            current = _load_normalized_control_sessions()
+            current_version = _sessions_version(current)
+            if payload.base_version != current_version:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": "version_conflict",
+                        "sessions": current,
+                        "version": current_version,
+                    },
+                )
         _save_normalized_control_sessions(normalized)
     return {
         "status": "ok",
         "count": len(normalized),
+        "version": _sessions_version(normalized),
         "storage": str(HERE / "sessions.json"),
     }
 
