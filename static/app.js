@@ -311,6 +311,7 @@ function buildKeysGrid() {
 // the keypad, rather than opening a popup.
 function setKeysMode(on) {
   state.keysMode = on;
+  document.body.classList.toggle('keys-mode', on);
   document.getElementById('session-list').classList.toggle('hidden', on);
   document.getElementById('keys-panel').classList.toggle('hidden', !on);
   const sw = document.getElementById('send-keys-btn');
@@ -343,8 +344,14 @@ function setRrMenu(show) {
   document.getElementById('rr-menu').classList.toggle('hidden', !show);
 }
 
-function setSidebarCollapsed(on) {
+// Matches the phone breakpoint in style.css, where the sidebar is a drawer.
+function isPhone() {
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function setSidebarCollapsed(on, persist = true) {
   document.body.classList.toggle('sidebar-collapsed', on);
+  if (!persist) return;
   try { localStorage.setItem('rr_sidebar_collapsed', on ? '1' : ''); } catch (_) {}
 }
 
@@ -1679,7 +1686,10 @@ function renderSidebar() {
 
     const main = document.createElement('button');
     main.className = 'session-main' + (server.name === state.activeSession ? ' active' : '');
-    main.onclick = () => selectSession(server);
+    main.onclick = () => {
+      if (isPhone()) setSidebarCollapsed(true, false);
+      selectSession(server);
+    };
 
     const dot = document.createElement('span');
     dot.className = 'session-dot';
@@ -2138,8 +2148,19 @@ async function init() {
   document.getElementById('rr-menu').addEventListener('click', () => setRrMenu(false));
   document.addEventListener('click', (e) => {
     if (!document.getElementById('rr-menu-wrap').contains(e.target)) setRrMenu(false);
+    // Phone drawer: a tap outside it closes it (unless docked for the keypad).
+    if (isPhone() && !state.keysMode && !document.body.classList.contains('sidebar-collapsed')
+        && !document.getElementById('sidebar').contains(e.target)
+        && e.target.id !== 'sidebar-reveal'
+        && !e.target.closest('[id$="-modal"]')) {
+      setSidebarCollapsed(true, false);
+    }
   });
-  try { if (localStorage.getItem('rr_sidebar_collapsed')) setSidebarCollapsed(true); } catch (_) {}
+  if (isPhone()) {
+    setSidebarCollapsed(true, false);
+  } else {
+    try { if (localStorage.getItem('rr_sidebar_collapsed')) setSidebarCollapsed(true); } catch (_) {}
+  }
   document.getElementById('sandbox-cancel').onclick = closeSandboxModal;
   document.getElementById('sandbox-submit').onclick = submitSandboxModal;
   document.getElementById('sandbox-modal').addEventListener('click', (e) => {

@@ -11,7 +11,7 @@
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <title>Remote Rider</title>
-  <link rel="stylesheet" href="/static/style.css?v=7">
+  <link rel="stylesheet" href="/static/style.css?v=8">
 </head>
 <body>
   <div id="sidebar">
@@ -39,9 +39,11 @@
       <div id="keys-flash" class="muted-note"></div>
     </div>
   </div>
-  <button id="sidebar-reveal" title="Show panel">☰</button>
   <div id="main">
-    <div id="tabs"></div>
+    <div id="tabbar">
+      <button id="sidebar-reveal" title="Show panel">☰</button>
+      <div id="tabs"></div>
+    </div>
     <div id="frames"></div>
   </div>
 
@@ -244,6 +246,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=7"></script>
+  <script src="/static/app.js?v=8"></script>
 </body>
 </html>
