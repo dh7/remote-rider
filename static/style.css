@@ -184,14 +184,25 @@ body {
 }
 
 #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#tabbar {
+  display: flex;
+  align-items: center;
+  background: var(--workspace-chrome-bg);
+  border-bottom: 1px solid color-mix(in srgb, var(--active-color, #2a2a4a) 55%, #2a2a4a);
+}
 #tabs {
+  flex: 1;
+  min-width: 0;
   display: flex;
   gap: 2px;
   padding: 0.4rem 0.5rem;
-  background: var(--workspace-chrome-bg);
-  border-bottom: 1px solid color-mix(in srgb, var(--active-color, #2a2a4a) 55%, #2a2a4a);
   align-items: center;
+  /* Scroll sideways when tabs don't fit (phones) instead of clipping. */
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+#tabs::-webkit-scrollbar { display: none; }
+#tabs > * { flex-shrink: 0; }
 #add-tab-btn {
   margin-left: auto;
   background: #1a2137;
@@ -715,17 +726,16 @@ body {
 #rr-menu .mi { flex: 0 0 1.2rem; text-align: center; font-size: 1rem; opacity: 0.9; }
 
 /* Retractable panel */
+/* Lives at the start of the tab bar so it never covers a tab. */
 #sidebar-reveal {
-  position: fixed;
-  top: 0.5rem;
-  left: 0.5rem;
-  z-index: 45;
+  flex: 0 0 auto;
+  margin-left: 0.5rem;
   display: none;
-  width: 2.4rem;
-  height: 2.4rem;
+  width: 1.9rem;
+  height: 1.9rem;
   align-items: center;
   justify-content: center;
-  font-size: 1.3rem;
+  font-size: 1.1rem;
   background: #29406c;
   border: 1px solid #45629a;
   color: #fff;
@@ -763,8 +773,47 @@ body.sidebar-collapsed #sidebar-reveal { display: inline-flex; }
   #send-keys-btn .switch-thumb { width: 2.1rem; height: 2.1rem; font-size: 1.3rem; }
   #send-keys-btn.on .switch-thumb { left: calc(100% - 2.25rem); }
   #fullscreen-btn, #sidebar-collapse { height: 2.4rem; min-width: 2.6rem; font-size: 1.5rem; }
-  #sidebar-reveal { width: 3rem; height: 3rem; font-size: 1.6rem; }
+  #sidebar-reveal { width: 2.5rem; height: 2.5rem; font-size: 1.4rem; }
   .key-btn { min-height: 3.4rem; font-size: 1.05rem; }
+
+  /* Sidebar is a drawer over the content, so the terminal keeps the full
+     width. In keypad mode it stays docked so the terminal remains visible. */
+  #sidebar {
+    position: fixed;
+    top: var(--rr-viewport-offset-top, 0px);
+    left: 0;
+    height: var(--rr-viewport-height, 100dvh);
+    width: min(85vw, 300px);
+    z-index: 50;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.6);
+  }
+  /* Backdrop: catches taps beside the open drawer (iframes would swallow them). */
+  body:not(.sidebar-collapsed):not(.keys-mode) #main::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: rgba(0, 0, 0, 0.35);
+  }
+  body.keys-mode #sidebar {
+    position: static;
+    width: 220px;
+    height: auto;
+    box-shadow: none;
+  }
+
+  .icon-btn { width: 2.5rem; height: 2.5rem; font-size: 1rem; }
+  .tab-btn { min-height: 2.5rem; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+  /* Popout/close only on the active tab, with a real touch area, so a tap
+     meant to switch tabs can't close one. */
+  .tab-btn:not(.active) .tab-popout-btn,
+  .tab-btn:not(.active) .tab-close-btn { display: none; }
+  .tab-popout-btn, .tab-close-btn { min-width: 1.9rem; min-height: 1.9rem; font-size: 1rem; }
+  .tab-btn.active .tab-popout-btn, .tab-btn.active .tab-close-btn { opacity: 0.8; }
+  #add-tab-btn { width: 2.5rem; height: 2.5rem; font-size: 1.2rem; }
+
+  /* iOS Safari zooms the page when focusing inputs under 16px. */
+  input, select, textarea { font-size: 16px !important; }
 }
 
 #update-card {

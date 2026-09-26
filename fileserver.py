@@ -21,6 +21,7 @@ VIDEO_EXTS = {".mp4", ".webm", ".mov", ".m4v", ".mkv", ".ogv"}
 AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".opus"}
 
 STYLE = """
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   * { box-sizing: border-box; }
   body {
@@ -230,6 +231,11 @@ STYLE = """
     flex: 0 0 auto;
   }
   .row-del:hover { opacity: 1; color: #ff7b83; }
+  @media (max-width: 768px) {
+    .entry-row { padding: 0.55rem 0; }
+    .row-del { min-width: 2.5rem; min-height: 2.5rem; }
+    input, select, textarea { font-size: 16px !important; }
+  }
   .vid { color: #f9b; }
   .snd { color: #c9f; }
 
