@@ -7,43 +7,369 @@
     },
     "tabs": [
       {
-        "id": "tab-7r6llfy5",
+        "id": "tab-xnlxfd3i",
         "label": "Terminal",
         "service": "terminal",
         "port": 7681,
         "path": "/?arg=netochka-slashagent-slashagent"
       },
       {
-        "id": "tab-53ftmrm3",
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-slashagent-slashagent/files",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-slashagent-slashagent/skills",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-slashagent-slashagent/notes",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-promo-shortlist",
+        "label": "Promo Shortlist",
+        "service": "promo",
+        "port": 8231,
+        "path": "/",
+        "protocol": "http"
+      }
+    ],
+    "display": "Gerald",
+    "project": "/home/dh/code/gerald",
+    "color": "#ffffff",
+    "active_tab": "tab-promo-shortlist"
+  },
+  {
+    "name": "airbench-ai",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-terminal",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=airbench-ai",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-monitor",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001,
+        "path": "/",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-logs",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002,
+        "path": "/",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/airbench-ai/files",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/airbench-ai/skills",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/airbench-ai/notes",
+        "protocol": "http"
+      }
+    ],
+    "display": "airbench.ai"
+  },
+  {
+    "name": "netochka-imgbench.ai-job2",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-vuw1xq62",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=netochka-imgbench_ai-job2"
+      },
+      {
+        "id": "tab-96dj3ysb",
         "label": "Monitor",
         "service": "monitor",
         "port": 8001
       },
       {
-        "id": "tab-c4s9ccwp",
+        "id": "tab-f4026zqt",
         "label": "Logs",
         "service": "logs",
         "port": 8002
       },
       {
-        "id": "tab-ijwzg4qz",
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-imgbench.ai-job2/files",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-imgbench.ai-job2/skills",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-imgbench.ai-job2/notes",
+        "protocol": "http"
+      }
+    ],
+    "display": "imgbench.ai",
+    "project": "/home/dh/code/imagebench.ai",
+    "color": "#04ff00"
+  },
+  {
+    "name": "netochka-image-bench-job1",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-h51cqncq",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=netochka-image-bench-job1"
+      },
+      {
+        "id": "tab-iyr9ylg1",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002
+      },
+      {
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-image-bench-job1/files",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-image-bench-job1/skills",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-image-bench-job1/notes",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-b79g9je5",
+        "label": "SERVER",
+        "port": 8499,
+        "path": "/",
+        "protocol": "http"
+      }
+    ],
+    "display": "image-bench",
+    "project": "/home/dh/code/img-bench",
+    "color": "#002aff"
+  },
+  {
+    "name": "remote-rider",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-zackm0ry",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=remote-rider"
+      },
+      {
+        "id": "tab-z390wjk6",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/remote-rider/files",
+        "protocol": "http"
+      }
+    ],
+    "display": "Remote Rider",
+    "color": "#e7eb24"
+  },
+  {
+    "name": "gx10-gx10-1",
+    "machine": {
+      "name": "gx10",
+      "host": "100.118.187.64"
+    },
+    "tabs": [
+      {
+        "id": "tab-z508cr99",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=gx10-gx10-1",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-ren6x85x",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001
+      },
+      {
+        "id": "tab-i7wmpou5",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002
+      },
+      {
+        "id": "tab-j3m2jo0h",
         "label": "Files",
         "service": "files",
         "port": 8080,
         "path": "/files"
       },
       {
-        "id": "tab-skills",
-        "label": "Skills",
-        "service": "skills-netochka-slashagent-slashagent",
-        "port": 8131,
+        "id": "tab-wyimsdna",
+        "label": "SERVER",
+        "port": 8999,
         "path": "/",
-        "protocol": "http",
-        "ephemeral": true
+        "protocol": "http"
       }
     ],
-    "display": "Gerald",
-    "color": "#ffffff"
+    "display": "gx10",
+    "color": "#ff0000"
+  },
+  {
+    "name": "hal5090-hal5090-1",
+    "machine": {
+      "name": "hal5090",
+      "host": "100.94.124.42"
+    },
+    "tabs": [
+      {
+        "id": "tab-terminal",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=hal5090-hal5090-1",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-monitor",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001
+      },
+      {
+        "id": "tab-logs",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002
+      },
+      {
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/hal5090-hal5090-1/files",
+        "protocol": "http"
+      }
+    ],
+    "display": "hal5090",
+    "color": "#f59e0b"
+  },
+  {
+    "name": "netochka-dh7skills-skills",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-ecugfrz8",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=netochka-dh7skills-skills"
+      },
+      {
+        "id": "tab-lkt1heos",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-dh7skills-skills/files",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-dh7skills-skills/skills",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-dh7skills-skills/notes",
+        "protocol": "http"
+      }
+    ],
+    "display": "dh7skills"
   },
   {
     "name": "hermes-hermes-1",
@@ -76,169 +402,83 @@
         "service": "files",
         "port": 8080,
         "path": "/files"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "skills-hermes-hermes-1",
+        "port": 8127,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
       }
     ],
     "display": "Pi",
     "color": "#8c00ff"
   },
   {
-    "name": "netochka-imgbench.ai-job2",
+    "name": "findtheslop",
     "machine": {
       "name": "netochka",
       "host": "100.119.43.10"
     },
     "tabs": [
       {
-        "id": "tab-vuw1xq62",
+        "id": "tab-dwzxx65k",
         "label": "Terminal",
         "service": "terminal",
         "port": 7681,
-        "path": "/?arg=netochka-imgbench_ai-job2"
+        "path": "/?arg=findtheslop"
       },
       {
-        "id": "tab-96dj3ysb",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-f4026zqt",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
-      },
-      {
-        "id": "tab-nualajip",
+        "id": "tab-0nyoa8rr",
         "label": "Files",
-        "service": "files",
-        "port": 8080,
-        "path": "/files"
-      },
-      {
-        "id": "tab-skills",
-        "label": "Skills",
-        "service": "skills-netochka-imgbench-ai-job2",
-        "port": 8129,
-        "path": "/",
-        "protocol": "http",
-        "ephemeral": true
-      }
-    ],
-    "display": "imgbench.ai",
-    "color": "#00d5ff"
-  },
-  {
-    "name": "netochka-image-bench-job1",
-    "machine": {
-      "name": "netochka",
-      "host": "100.119.43.10"
-    },
-    "tabs": [
-      {
-        "id": "tab-ivj91ek3",
-        "label": "Terminal",
-        "service": "terminal",
-        "port": 7681,
-        "path": "/?arg=netochka-image-bench-job1"
-      },
-      {
-        "id": "tab-0ftczoe7",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-0pjhu7kg",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
-      },
-      {
-        "id": "tab-efsxxvy0",
-        "label": "Files",
-        "service": "files",
-        "port": 8080,
-        "path": "/files"
-      },
-      {
-        "id": "tab-skills",
-        "label": "Skills",
-        "service": "skills-netochka-image-bench-job1",
-        "port": 8128,
-        "path": "/",
-        "protocol": "http",
-        "ephemeral": true
-      }
-    ],
-    "display": "image-bench",
-    "color": "#00f03c"
-  },
-  {
-    "name": "remote-rider",
-    "machine": {
-      "name": "netochka",
-      "host": "100.119.43.10"
-    },
-    "tabs": [
-      {
-        "id": "tab-terminal",
-        "label": "Terminal",
-        "service": "terminal",
-        "port": 7681,
-        "path": "/?arg=remote-rider",
-        "protocol": "http"
-      },
-      {
-        "id": "tab-monitor",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001,
-        "path": "/",
-        "protocol": "http"
-      },
-      {
-        "id": "tab-logs",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002,
-        "path": "/",
-        "protocol": "http"
-      },
-      {
-        "id": "tab-files",
-        "label": "Files",
-        "service": "files",
-        "port": 8080,
-        "path": "/files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/findtheslop/files",
         "protocol": "http"
       },
       {
         "id": "tab-skills",
         "label": "Skills",
-        "service": "skills-remote-rider",
-        "port": 8127,
-        "path": "/",
-        "protocol": "http",
-        "ephemeral": true
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/findtheslop/skills",
+        "protocol": "http"
       },
       {
         "id": "tab-notes",
         "label": "Notes",
-        "service": "notes",
-        "port": 8126,
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/findtheslop/notes",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-mlflow",
+        "label": "MLflow",
+        "service": "mlflow",
+        "port": 43802,
         "path": "/",
-        "protocol": "http",
-        "ephemeral": true
+        "protocol": "http"
+      },
+      {
+        "id": "tab-losses",
+        "label": "Losses",
+        "service": "losses",
+        "port": 43803,
+        "path": "/",
+        "protocol": "http"
       }
     ],
-    "display": "Remote Rider",
-    "color": "#2563eb"
+    "display": "findtheslop",
+    "color": "#42d74c"
   },
   {
-    "name": "remote-rider-ui-polish",
+    "name": "image-store-image-store-image-store",
     "machine": {
-      "name": "netochka",
-      "host": "100.119.43.10"
+      "name": "image-store",
+      "host": "100.118.221.26"
     },
     "tabs": [
       {
@@ -246,7 +486,7 @@
         "label": "Terminal",
         "service": "terminal",
         "port": 7681,
-        "path": "/?arg=remote-rider-ui-polish",
+        "path": "/?arg=image-store",
         "protocol": "http"
       },
       {
@@ -276,91 +516,186 @@
         "path": "/",
         "protocol": "http",
         "ephemeral": true
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "notes",
+        "port": 8134,
+        "path": "/",
+        "protocol": "http",
+        "ephemeral": true
+      },
+      {
+        "id": "tab-75gtucz5",
+        "label": "SERVER",
+        "port": 8090,
+        "path": "/",
+        "protocol": "http"
       }
     ],
-    "display": "Remote Rider UI Polish",
-    "color": "#1100ff"
+    "display": "image-store",
+    "color": "#d78742"
   },
   {
-    "name": "gx10-gx10-1",
-    "machine": {
-      "name": "gx10",
-      "host": "100.118.187.64"
-    },
-    "tabs": [
-      {
-        "id": "tab-sogng3ao",
-        "label": "Terminal",
-        "service": "terminal",
-        "port": 7681
-      },
-      {
-        "id": "tab-9ats4kgr",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-weykho7n",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8003
-      },
-      {
-        "id": "tab-566ygrxr",
-        "label": "Files",
-        "service": "files",
-        "port": 8080,
-        "path": "/files"
-      }
-    ],
-    "display": "gx10",
-    "color": "#ff0000"
-  },
-  {
-    "name": "netochka-dh7skills-skills",
+    "name": "ai-stuff-xyz",
     "machine": {
       "name": "netochka",
       "host": "100.119.43.10"
     },
     "tabs": [
       {
-        "id": "tab-ecugfrz8",
+        "id": "tab-terminal",
         "label": "Terminal",
         "service": "terminal",
         "port": 7681,
-        "path": "/?arg=netochka-dh7skills-skills"
+        "path": "/?arg=ai-stuff-xyz",
+        "protocol": "http"
       },
       {
-        "id": "tab-xls8lu8a",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-7d9bejdi",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
-      },
-      {
-        "id": "tab-lkt1heos",
+        "id": "tab-files",
         "label": "Files",
-        "service": "files",
-        "port": 8080,
-        "path": "/files"
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/ai-stuff-xyz/files",
+        "protocol": "http"
       },
       {
         "id": "tab-skills",
         "label": "Skills",
-        "service": "skills-netochka-dh7skills-skills",
-        "port": 8132,
-        "path": "/",
-        "protocol": "http",
-        "ephemeral": true
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/ai-stuff-xyz/skills",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/ai-stuff-xyz/notes",
+        "protocol": "http"
       }
     ],
-    "display": "dh7skills",
-    "active_tab": "tab-skills"
+    "display": "ai-stuff-xyz",
+    "color": "#8cd742"
+  },
+  {
+    "name": "netochka-context-windows",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-terminal",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=netochka-context-windows",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-monitor",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001,
+        "path": "/",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-logs",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002,
+        "path": "/",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-context-windows/files",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-context-windows/skills",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-context-windows/notes",
+        "protocol": "http"
+      }
+    ],
+    "display": "context windows",
+    "color": "#06b6d4"
+  },
+  {
+    "name": "netochka-damienhenry",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-terminal",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=netochka-damienhenry",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-monitor",
+        "label": "Monitor",
+        "service": "monitor",
+        "port": 8001,
+        "path": "/",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-logs",
+        "label": "Logs",
+        "service": "logs",
+        "port": 8002,
+        "path": "/",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-damienhenry/files",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-damienhenry/skills",
+        "protocol": "http"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-damienhenry/notes",
+        "protocol": "http"
+      }
+    ],
+    "display": "damien-henry.com",
+    "color": "#2563eb"
   }
 ]
