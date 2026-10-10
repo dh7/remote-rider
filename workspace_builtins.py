@@ -84,7 +84,9 @@ def _project_for(session_name: str) -> Path:
                 continue
             if isinstance(data, dict) and data.get("session") == session_name:
                 return rr_path.parent.resolve()
-    raise HTTPException(status_code=400, detail="workspace project path is not configured")
+    # No project configured: default to the home directory, matching what the
+    # retired standalone file service did (it launched with no RR_FILES_ROOT).
+    return Path.home().resolve()
 
 
 def _safe(root: Path, rel_path: str) -> Path:
