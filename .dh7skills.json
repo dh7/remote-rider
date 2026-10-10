@@ -1,7 +1,11 @@
 {
   "skills": [
-    "cloudflare-workers",
-    "notion"
+    "google-search-console",
+    "homelab",
+    "imagebench-ai-seo",
+    "notion",
+    "remote-rider",
+    "seo-query-study"
   ],
   "agent_dirs": [
     ".agents/skills",
@@ -9,5 +13,6 @@
     ".cursor/skills",
     ".codex/skills",
     ".opencode/skills"
-  ]
+  ],
+  "external_skills": []
 }
