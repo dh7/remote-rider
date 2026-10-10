@@ -83,7 +83,7 @@ HTML = r"""<!doctype html>
     .mode-switch button:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
     .mode-switch button:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; margin-left: -1px; }
     textarea { flex: 1; width: 100%; resize: none; border: 0; outline: 0; padding: 12px; background: #0d1015; color: #e8ebf2; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.45; }
-    article { flex: 1; overflow: auto; padding: 16px 20px; line-height: 1.5; }
+    article { flex: 1; overflow: auto; padding: 16px 20px; line-height: 1.5; user-select: text; -webkit-user-select: text; }
     article h1, article h2, article h3 { margin: 1em 0 .4em; }
     article h1:first-child, article h2:first-child { margin-top: 0; }
     article pre { background: #0d1015; border: 1px solid #29303a; border-radius: 6px; padding: 10px; overflow-x: auto; }
@@ -325,6 +325,13 @@ HTML = r"""<!doctype html>
       drafts[current] = e.target.value;
       renderMarkdown(e.target.value);
     });
+    function hasPreviewSelection() {
+      const preview = document.getElementById('preview');
+      const sel = window.getSelection ? window.getSelection() : null;
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
+      const range = sel.getRangeAt(0);
+      return preview.contains(range.commonAncestorContainer);
+    }
     async function autoSync() {
       if (!state) return;
       let next;
@@ -341,8 +348,9 @@ HTML = r"""<!doctype html>
       }
       state.files = next.files;
       state.git = next.git;
-      // Skip the redraw while the user is actively typing to avoid caret jumps.
+      // Skip the redraw while the user is typing or selecting copy text.
       if (document.activeElement && document.activeElement.id === 'text') return;
+      if (hasPreviewSelection()) return;
       render();
     }
     refresh()
