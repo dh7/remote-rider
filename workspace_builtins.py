@@ -212,6 +212,26 @@ input { background: #11131a; border: 1px solid #3e4455; color: #eee; font-family
 .copy-btn:hover { filter: brightness(1.15); }
 .copy-btn.done { background: #2f7d43; }
 .hidden { display: none !important; }
+.editor-toolbar { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .5rem; }
+.editor-toolbar .grow { flex: 1; }
+.editor-toolbar .fname { color: #cfe0ff; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mode-btn { background: #1d1f26; border: 1px solid #4b5565; color: #cdd3dd; padding: .3rem .6rem; cursor: pointer; font-family: monospace; font-size: .8rem; }
+.mode-btn.active { background: #2f446f; color: #fff; border-color: #6aa0ff; }
+.find-bar { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-bottom: .5rem; padding: .4rem; background: #16181f; border: 1px solid #2f3644; border-radius: 5px; }
+.find-bar input { min-width: 10rem; }
+.find-count { color: #9aa4b2; font-size: .78rem; }
+.pane { display: none; }
+.pane.active { display: block; }
+#md-pane { background: linear-gradient(180deg, #121722 0%, #0e1118 100%); border: 1px solid #303646; border-radius: 8px; padding: 1rem; min-height: 72vh; overflow: auto; }
+.markdown-body { max-width: 980px; margin: 0 auto; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 1em 0 .4em; }
+.markdown-body pre { background: #0d1015; border: 1px solid #29303a; border-radius: 6px; padding: 10px; overflow-x: auto; }
+.markdown-body code { background: #0d1015; padding: .1rem .3rem; border-radius: 3px; }
+.markdown-body pre code { background: none; padding: 0; }
+.markdown-body table { border-collapse: collapse; margin: .6rem 0; }
+.markdown-body th, .markdown-body td { border: 1px solid #39414f; padding: .3rem .6rem; }
+.markdown-body th { background: #1b2230; }
+.markdown-body .table-wrap { max-width: 100%; overflow-x: auto; }
 </style>
 """
 
@@ -616,6 +636,85 @@ async def files_create(session_name: str, request: Request, path: str = "") -> R
     return RedirectResponse(url=f"{_file_base(session_name)}/edit?path={_q(_rel(root, target))}", status_code=303)
 
 
+# Editor client logic. Kept as a plain (non-f) string so its JS braces stay
+# literal; BASE/REL/IS_MD are injected via a small f-string prelude. The
+# markdown renderer mirrors the Notes tab's hand-written one (no CDN).
+EDITOR_JS = r"""
+const ta = document.getElementById('content');
+const codePane = document.getElementById('code-pane');
+const mdPane = document.getElementById('md-pane');
+const mdBody = document.getElementById('md-body');
+const modeCode = document.getElementById('mode-code');
+const modeMd = document.getElementById('mode-md');
+
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function inl(s){return esc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');}
+function escPipe(s,idx){let n=0;for(let i=idx-1;i>=0&&s[i]==='\\';i--)n++;return n%2===1;}
+function boundaryPipe(s,idx){if(s[idx]!=='|'||escPipe(s,idx))return false;let inC=false;for(let i=0;i<idx;i++){if(s[i]==='`'&&!escPipe(s,i))inC=!inC;}return !inC;}
+function trimBounds(line){let s=line.trim();if(s&&boundaryPipe(s,0))s=s.slice(1);if(s&&boundaryPipe(s,s.length-1))s=s.slice(0,-1);return s;}
+function splitRow(line){const s=trimBounds(line);const cells=[];let cell='',inC=false;for(let i=0;i<s.length;i++){const ch=s[i];if(ch==='`'&&!escPipe(s,i)){inC=!inC;cell+=ch;continue;}if(ch==='\\'&&s[i+1]==='|'){cell+='|';i++;continue;}if(ch==='|'&&!inC){cells.push(cell.trim());cell='';continue;}cell+=ch;}cells.push(cell.trim());return cells;}
+function isSep(line){if(!line||line.indexOf('|')===-1)return false;const c=splitRow(line);return c.length>0&&c.every(x=>/^:?-{1,}:?$/.test(x));}
+function isRow(line){return !!line&&line.trim()&&line.indexOf('|')!==-1&&splitRow(line).length>1;}
+function alignFor(cell){const l=cell.startsWith(':'),r=cell.endsWith(':');if(l&&r)return 'center';if(r)return 'right';if(l)return 'left';return '';}
+function renderMd(text){
+  const lines=String(text||'').split('\n');let out='',inCode=false,inList=false;
+  for(let i=0;i<lines.length;i++){const line=lines[i];
+    if(line.startsWith('```')){if(inCode){out+='</code></pre>';inCode=false;}else{out+='<pre><code>';inCode=true;}continue;}
+    if(inCode){out+=esc(line)+'\n';continue;}
+    if(isRow(line)&&isSep(lines[i+1]||'')){if(inList){out+='</ul>';inList=false;}
+      const headers=splitRow(line);const aligns=splitRow(lines[i+1]).map(alignFor);
+      const cs=k=>aligns[k]?` style="text-align:${aligns[k]}"`:'';const rows=[];let j=i+2;
+      while(j<lines.length&&isRow(lines[j])){rows.push(splitRow(lines[j]));j++;}
+      const w=Math.max(headers.length,aligns.length,...rows.map(c=>c.length));const idx=Array.from({length:w},(_,k)=>k);
+      const head='<tr>'+idx.map(k=>`<th${cs(k)}>${inl(headers[k]||'')}</th>`).join('')+'</tr>';
+      const body=rows.map(c=>'<tr>'+idx.map(k=>`<td${cs(k)}>${inl(c[k]||'')}</td>`).join('')+'</tr>').join('');
+      out+=`<div class="table-wrap"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`;i=j-1;continue;}
+    const h=line.match(/^(#{1,3})\s+(.*)$/);
+    if(h){if(inList){out+='</ul>';inList=false;}out+=`<h${h[1].length}>${inl(h[2])}</h${h[1].length}>`;continue;}
+    const li=line.match(/^\s*-\s+(\[[ xX]\]\s+)?(.*)$/);
+    if(li){if(!inList){out+='<ul>';inList=true;}const ck=li[1]&&li[1].toLowerCase().includes('x');const box=li[1]?`<input type="checkbox" disabled ${ck?'checked':''}> `:'';out+=`<li>${box}${inl(li[2])}</li>`;continue;}
+    if(inList){out+='</ul>';inList=false;}
+    out+=line.trim()?`<p>${inl(line)}</p>`:'';
+  }
+  if(inList)out+='</ul>';if(inCode)out+='</code></pre>';return out;
+}
+function showPane(which){
+  const code=which==='code';
+  codePane.classList.toggle('active',code);mdPane.classList.toggle('active',!code);
+  if(modeCode)modeCode.classList.toggle('active',code);if(modeMd)modeMd.classList.toggle('active',!code);
+  if(!code)mdBody.innerHTML=renderMd(ta.value)||'<p>Empty file.</p>';
+}
+if(modeCode)modeCode.addEventListener('click',()=>showPane('code'));
+if(modeMd)modeMd.addEventListener('click',()=>showPane('md'));
+ta.addEventListener('input',()=>{if(mdPane.classList.contains('active'))mdBody.innerHTML=renderMd(ta.value);});
+
+const findBar=document.getElementById('find-bar');
+const findInput=document.getElementById('find-input');
+document.getElementById('btn-find').addEventListener('click',()=>{findBar.classList.toggle('hidden');if(!findBar.classList.contains('hidden')){findInput.focus();}});
+function updCount(){const q=findInput.value,c=document.getElementById('find-count');if(!q){c.textContent='';return;}let n=0,i=0;while((i=ta.value.indexOf(q,i))!==-1){n++;i+=q.length;}c.textContent=n+' matches';}
+function findNext(){const q=findInput.value;if(!q)return;let from=ta.selectionEnd||0;let idx=ta.value.indexOf(q,from);if(idx===-1)idx=ta.value.indexOf(q,0);if(idx===-1)return;ta.focus();ta.setSelectionRange(idx,idx+q.length);}
+function replaceOne(){const q=findInput.value,r=document.getElementById('replace-input').value;if(!q)return;if(ta.value.substring(ta.selectionStart,ta.selectionEnd)===q){ta.setRangeText(r,ta.selectionStart,ta.selectionEnd,'end');}findNext();updCount();}
+function replaceAll(){const q=findInput.value,r=document.getElementById('replace-input').value;if(!q)return;ta.value=ta.value.split(q).join(r);updCount();}
+document.getElementById('find-next').addEventListener('click',findNext);
+document.getElementById('replace-one').addEventListener('click',replaceOne);
+document.getElementById('replace-all').addEventListener('click',replaceAll);
+findInput.addEventListener('input',updCount);
+findInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();findNext();}});
+
+async function postForm(url,fields){const body=Object.entries(fields).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');return fetch(url,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body});}
+document.getElementById('btn-saveas').addEventListener('click',async()=>{
+  const np=prompt('Save As (path relative to workspace root):',REL);if(!np)return;
+  const res=await postForm(BASE+'/save-as?path='+encodeURIComponent(REL),{new_path:np,content:ta.value});
+  if(res.ok){const d=await res.json();location.href=BASE+'/edit?path='+encodeURIComponent(d.path);}else alert('Save As failed: '+await res.text());
+});
+document.getElementById('btn-rename').addEventListener('click',async()=>{
+  const np=prompt('Rename / move to (path relative to workspace root):',REL);if(!np||np===REL)return;
+  const res=await postForm(BASE+'/rename?path='+encodeURIComponent(REL),{new_path:np});
+  if(res.ok){const d=await res.json();location.href=BASE+'/edit?path='+encodeURIComponent(d.path);}else alert('Rename failed: '+await res.text());
+});
+"""
+
+
 @router.get("/{session_name}/files/edit", response_class=HTMLResponse)
 def files_edit(session_name: str, path: str) -> HTMLResponse:
     root = _project_for(session_name)
@@ -624,18 +723,43 @@ def files_edit(session_name: str, path: str) -> HTMLResponse:
         raise HTTPException(status_code=404, detail="not found")
     rel = _rel(root, target)
     parent = str(Path(rel).parent)
+    if parent == ".":
+        parent = ""
     base = _file_base(session_name)
     content = escape(target.read_text(errors="replace"))
+    is_md = target.suffix.lower() in {".md", ".markdown"}
+    md_button = '<button class="mode-btn" id="mode-md" type="button">Markdown</button>' if is_md else ""
+    prelude = (
+        f"const BASE = {json.dumps(base)};\n"
+        f"const REL = {json.dumps(rel)};\n"
+        f"const IS_MD = {json.dumps(is_md)};\n"
+    )
     html = f"""
     <html><head>{FILE_STYLE}</head><body>
-      <form method="post" action="{base}/save?path={_q(rel)}">
-        <div class="topbar">
+      <form id="edit-form" method="post" action="{base}/save?path={_q(rel)}">
+        <div class="editor-toolbar">
           <a class="btn ghost" href="{base}?path={_q(parent)}">Back</a>
-          <div>{escape(rel)}</div>
-          <button class="btn" type="submit">Save</button>
+          <span class="fname">{escape(rel)}</span>
+          <span class="grow"></span>
+          <button class="mode-btn active" id="mode-code" type="button">Code</button>
+          {md_button}
+          <button class="btn ghost" id="btn-find" type="button">Find</button>
+          <button class="btn" id="btn-save" type="submit">Save</button>
+          <button class="btn ghost" id="btn-saveas" type="button">Save As</button>
+          <button class="btn ghost" id="btn-rename" type="button">Rename</button>
         </div>
-        <textarea name="content">{content}</textarea>
+        <div class="find-bar hidden" id="find-bar">
+          <input id="find-input" placeholder="find" autocomplete="off">
+          <input id="replace-input" placeholder="replace with" autocomplete="off">
+          <button class="btn ghost" id="find-next" type="button">Next</button>
+          <button class="btn ghost" id="replace-one" type="button">Replace</button>
+          <button class="btn ghost" id="replace-all" type="button">All</button>
+          <span class="find-count" id="find-count"></span>
+        </div>
+        <div class="pane active" id="code-pane"><textarea id="content" name="content">{content}</textarea></div>
+        <div class="pane" id="md-pane"><div class="markdown-body" id="md-body"></div></div>
       </form>
+      <script>{prelude}{EDITOR_JS}</script>
     </body></html>
     """
     return HTMLResponse(html)
@@ -650,3 +774,36 @@ async def files_save(session_name: str, request: Request, path: str) -> Redirect
     form = parse_qs((await request.body()).decode())
     target.write_text(str(form.get("content", [""])[0]))
     return RedirectResponse(url=f"{_file_base(session_name)}/edit?path={_q(path)}", status_code=303)
+
+
+@router.post("/{session_name}/files/save-as")
+async def files_save_as(session_name: str, request: Request, path: str = "") -> dict[str, str]:
+    root = _project_for(session_name)
+    form = parse_qs((await request.body()).decode())
+    new_path = str(form.get("new_path", [""])[0]).strip()
+    if not new_path:
+        raise HTTPException(status_code=400, detail="new_path is required")
+    target = _safe(root, new_path)
+    if target.exists() and target.is_dir():
+        raise HTTPException(status_code=400, detail="cannot overwrite a directory")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(str(form.get("content", [""])[0]))
+    return {"path": _rel(root, target)}
+
+
+@router.post("/{session_name}/files/rename")
+async def files_rename(session_name: str, request: Request, path: str) -> dict[str, str]:
+    root = _project_for(session_name)
+    src = _safe(root, path)
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="not found")
+    form = parse_qs((await request.body()).decode())
+    new_path = str(form.get("new_path", [""])[0]).strip()
+    if not new_path:
+        raise HTTPException(status_code=400, detail="new_path is required")
+    dst = _safe(root, new_path)
+    if dst.exists():
+        raise HTTPException(status_code=400, detail="destination already exists")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src.rename(dst)
+    return {"path": _rel(root, dst)}
