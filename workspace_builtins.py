@@ -232,6 +232,13 @@ input { background: #11131a; border: 1px solid #3e4455; color: #eee; font-family
 .markdown-body th, .markdown-body td { border: 1px solid #39414f; padding: .3rem .6rem; }
 .markdown-body th { background: #1b2230; }
 .markdown-body .table-wrap { max-width: 100%; overflow-x: auto; }
+.CodeMirror { height: 72vh; border: 1px solid #394050; font-size: .9rem; }
+.csv-toolbar { display: flex; gap: .4rem; margin-bottom: .4rem; }
+#csv-pane { overflow: auto; max-height: 76vh; }
+.csv-table { border-collapse: collapse; }
+.csv-table td { border: 1px solid #394050; padding: 0; }
+.csv-table input { border: none; background: #11131a; color: #eee; min-width: 6rem; padding: .3rem; font-family: monospace; font-size: .82rem; }
+.csv-table input:focus { outline: 1px solid #6aa0ff; background: #161b27; }
 </style>
 """
 
@@ -678,33 +685,95 @@ function renderMd(text){
   }
   if(inList)out+='</ul>';if(inCode)out+='</code></pre>';return out;
 }
+const modeCsv=document.getElementById('mode-csv');
+const csvPane=document.getElementById('csv-pane');
+
+// ---- optional CodeMirror syntax highlighting (vendored, graceful fallback) ----
+let _cm=null;
+try{
+  if(window.CodeMirror){
+    const info=(CodeMirror.findModeByFileName&&CodeMirror.findModeByFileName(REL))||null;
+    _cm=CodeMirror.fromTextArea(ta,{lineNumbers:true,theme:'material-darker',matchBrackets:true,mode:info?info.mode:null});
+    if(info&&info.mode){CodeMirror.modeURL='/static/vendor/codemirror/mode/%N/%N.min.js';try{CodeMirror.autoLoadMode(_cm,info.mode);}catch(e){}}
+  }
+}catch(e){_cm=null;}
+function srcText(){return _cm?_cm.getValue():ta.value;}
+function setSrc(t){if(_cm)_cm.setValue(t);else ta.value=t;}
+
+let activePane='code';
 function showPane(which){
-  const code=which==='code';
-  codePane.classList.toggle('active',code);mdPane.classList.toggle('active',!code);
-  if(modeCode)modeCode.classList.toggle('active',code);if(modeMd)modeMd.classList.toggle('active',!code);
-  if(!code)mdBody.innerHTML=renderMd(ta.value)||'<p>Empty file.</p>';
+  if(activePane==='csv'&&which!=='csv')writeCsvToSource();
+  activePane=which;
+  codePane.classList.toggle('active',which==='code');
+  mdPane.classList.toggle('active',which==='md');
+  if(csvPane)csvPane.classList.toggle('active',which==='csv');
+  if(modeCode)modeCode.classList.toggle('active',which==='code');
+  if(modeMd)modeMd.classList.toggle('active',which==='md');
+  if(modeCsv)modeCsv.classList.toggle('active',which==='csv');
+  if(which==='md')mdBody.innerHTML=renderMd(srcText())||'<p>Empty file.</p>';
+  if(which==='csv')loadCsvFromSource();
+  if(which==='code'&&_cm)setTimeout(()=>_cm.refresh(),0);
 }
 if(modeCode)modeCode.addEventListener('click',()=>showPane('code'));
 if(modeMd)modeMd.addEventListener('click',()=>showPane('md'));
-ta.addEventListener('input',()=>{if(mdPane.classList.contains('active'))mdBody.innerHTML=renderMd(ta.value);});
+if(modeCsv)modeCsv.addEventListener('click',()=>showPane('csv'));
+function onSourceChanged(){if(activePane==='md')mdBody.innerHTML=renderMd(srcText());}
+if(_cm)_cm.on('change',onSourceChanged);else ta.addEventListener('input',onSourceChanged);
 
+// ---- CSV table (hand-rolled, no library) ----
+let csvRows=[];
+function parseCSV(text){
+  const rows=[[]];let cur='',inQ=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(inQ){if(c==='"'){if(text[i+1]==='"'){cur+='"';i++;}else inQ=false;}else cur+=c;}
+    else{if(c==='"')inQ=true;else if(c===','){rows[rows.length-1].push(cur);cur='';}else if(c==='\n'){rows[rows.length-1].push(cur);cur='';rows.push([]);}else if(c==='\r'){}else cur+=c;}
+  }
+  rows[rows.length-1].push(cur);
+  if(rows.length>1&&rows[rows.length-1].length===1&&rows[rows.length-1][0]==='')rows.pop();
+  return rows;
+}
+function csvCell(v){v=String(v);return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+function serializeCSV(rows){return rows.map(r=>r.map(csvCell).join(',')).join('\n');}
+function renderCsvTable(){
+  const t=document.createElement('table');t.className='csv-table';
+  csvRows.forEach((row,ri)=>{const tr=document.createElement('tr');
+    row.forEach((cell,ci)=>{const td=document.createElement('td');const inp=document.createElement('input');inp.value=cell;inp.addEventListener('input',()=>{csvRows[ri][ci]=inp.value;});td.appendChild(inp);tr.appendChild(td);});
+    t.appendChild(tr);});
+  const host=document.getElementById('csv-grid');host.innerHTML='';host.appendChild(t);
+}
+function loadCsvFromSource(){csvRows=parseCSV(srcText());const w=Math.max(1,...csvRows.map(r=>r.length));csvRows.forEach(r=>{while(r.length<w)r.push('');});renderCsvTable();}
+function writeCsvToSource(){setSrc(serializeCSV(csvRows));}
+if(modeCsv){
+  document.getElementById('csv-addrow').addEventListener('click',()=>{const w=csvRows[0]?csvRows[0].length:1;csvRows.push(Array(w).fill(''));renderCsvTable();});
+  document.getElementById('csv-addcol').addEventListener('click',()=>{csvRows.forEach(r=>r.push(''));renderCsvTable();});
+}
+function currentSource(){if(activePane==='csv')writeCsvToSource();return srcText();}
+
+// ---- find / replace (CodeMirror-aware) ----
 const findBar=document.getElementById('find-bar');
 const findInput=document.getElementById('find-input');
 document.getElementById('btn-find').addEventListener('click',()=>{findBar.classList.toggle('hidden');if(!findBar.classList.contains('hidden')){findInput.focus();}});
-function updCount(){const q=findInput.value,c=document.getElementById('find-count');if(!q){c.textContent='';return;}let n=0,i=0;while((i=ta.value.indexOf(q,i))!==-1){n++;i+=q.length;}c.textContent=n+' matches';}
-function findNext(){const q=findInput.value;if(!q)return;let from=ta.selectionEnd||0;let idx=ta.value.indexOf(q,from);if(idx===-1)idx=ta.value.indexOf(q,0);if(idx===-1)return;ta.focus();ta.setSelectionRange(idx,idx+q.length);}
-function replaceOne(){const q=findInput.value,r=document.getElementById('replace-input').value;if(!q)return;if(ta.value.substring(ta.selectionStart,ta.selectionEnd)===q){ta.setRangeText(r,ta.selectionStart,ta.selectionEnd,'end');}findNext();updCount();}
-function replaceAll(){const q=findInput.value,r=document.getElementById('replace-input').value;if(!q)return;ta.value=ta.value.split(q).join(r);updCount();}
+function updCount(){const q=findInput.value,c=document.getElementById('find-count');if(!q){c.textContent='';return;}const text=srcText();let n=0,i=0;while((i=text.indexOf(q,i))!==-1){n++;i+=q.length;}c.textContent=n+' matches';}
+function findNext(){const q=findInput.value;if(!q)return;
+  if(_cm){const text=_cm.getValue();let from=_cm.indexFromPos(_cm.getCursor('to'));let idx=text.indexOf(q,from);if(idx===-1)idx=text.indexOf(q,0);if(idx===-1)return;_cm.setSelection(_cm.posFromIndex(idx),_cm.posFromIndex(idx+q.length));_cm.scrollIntoView(null);_cm.focus();}
+  else{let from=ta.selectionEnd||0;let idx=ta.value.indexOf(q,from);if(idx===-1)idx=ta.value.indexOf(q,0);if(idx===-1)return;ta.focus();ta.setSelectionRange(idx,idx+q.length);}}
+function replaceOne(){const q=findInput.value,r=document.getElementById('replace-input').value;if(!q)return;
+  if(_cm){if(_cm.getSelection()===q)_cm.replaceSelection(r);}
+  else{if(ta.value.substring(ta.selectionStart,ta.selectionEnd)===q)ta.setRangeText(r,ta.selectionStart,ta.selectionEnd,'end');}
+  findNext();updCount();}
+function replaceAll(){const q=findInput.value,r=document.getElementById('replace-input').value;if(!q)return;if(_cm)_cm.setValue(_cm.getValue().split(q).join(r));else ta.value=ta.value.split(q).join(r);updCount();}
 document.getElementById('find-next').addEventListener('click',findNext);
 document.getElementById('replace-one').addEventListener('click',replaceOne);
 document.getElementById('replace-all').addEventListener('click',replaceAll);
 findInput.addEventListener('input',updCount);
 findInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();findNext();}});
 
+// ---- save / save-as / rename (sync active pane into the textarea first) ----
+document.getElementById('edit-form').addEventListener('submit',()=>{if(activePane==='csv')writeCsvToSource();if(_cm)_cm.save();});
 async function postForm(url,fields){const body=Object.entries(fields).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');return fetch(url,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body});}
 document.getElementById('btn-saveas').addEventListener('click',async()=>{
   const np=prompt('Save As (path relative to workspace root):',REL);if(!np)return;
-  const res=await postForm(BASE+'/save-as?path='+encodeURIComponent(REL),{new_path:np,content:ta.value});
+  const res=await postForm(BASE+'/save-as?path='+encodeURIComponent(REL),{new_path:np,content:currentSource()});
   if(res.ok){const d=await res.json();location.href=BASE+'/edit?path='+encodeURIComponent(d.path);}else alert('Save As failed: '+await res.text());
 });
 document.getElementById('btn-rename').addEventListener('click',async()=>{
@@ -728,14 +797,32 @@ def files_edit(session_name: str, path: str) -> HTMLResponse:
     base = _file_base(session_name)
     content = escape(target.read_text(errors="replace"))
     is_md = target.suffix.lower() in {".md", ".markdown"}
+    is_csv = target.suffix.lower() in {".csv", ".tsv"}
     md_button = '<button class="mode-btn" id="mode-md" type="button">Markdown</button>' if is_md else ""
+    csv_button = '<button class="mode-btn" id="mode-csv" type="button">CSV</button>' if is_csv else ""
+    csv_pane = (
+        '<div class="pane" id="csv-pane"><div class="csv-toolbar">'
+        '<button class="btn ghost" id="csv-addrow" type="button">Add Row</button>'
+        '<button class="btn ghost" id="csv-addcol" type="button">Add Column</button>'
+        '</div><div id="csv-grid"></div></div>'
+    ) if is_csv else ""
+    # Vendored CodeMirror (no CDN). Loads before the body script; the editor
+    # degrades to a plain textarea if these 404 (e.g. a not-yet-updated machine).
+    cm_assets = (
+        '<link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css">'
+        '<link rel="stylesheet" href="/static/vendor/codemirror/theme/material-darker.min.css">'
+        '<script src="/static/vendor/codemirror/codemirror.min.js"></script>'
+        '<script src="/static/vendor/codemirror/mode/meta.min.js"></script>'
+        '<script src="/static/vendor/codemirror/addon/mode/loadmode.min.js"></script>'
+        '<script src="/static/vendor/codemirror/addon/edit/matchbrackets.min.js"></script>'
+    )
     prelude = (
         f"const BASE = {json.dumps(base)};\n"
         f"const REL = {json.dumps(rel)};\n"
         f"const IS_MD = {json.dumps(is_md)};\n"
     )
     html = f"""
-    <html><head>{FILE_STYLE}</head><body>
+    <html><head>{FILE_STYLE}{cm_assets}</head><body>
       <form id="edit-form" method="post" action="{base}/save?path={_q(rel)}">
         <div class="editor-toolbar">
           <a class="btn ghost" href="{base}?path={_q(parent)}">Back</a>
@@ -743,6 +830,7 @@ def files_edit(session_name: str, path: str) -> HTMLResponse:
           <span class="grow"></span>
           <button class="mode-btn active" id="mode-code" type="button">Code</button>
           {md_button}
+          {csv_button}
           <button class="btn ghost" id="btn-find" type="button">Find</button>
           <button class="btn" id="btn-save" type="submit">Save</button>
           <button class="btn ghost" id="btn-saveas" type="button">Save As</button>
@@ -758,6 +846,7 @@ def files_edit(session_name: str, path: str) -> HTMLResponse:
         </div>
         <div class="pane active" id="code-pane"><textarea id="content" name="content">{content}</textarea></div>
         <div class="pane" id="md-pane"><div class="markdown-body" id="md-body"></div></div>
+        {csv_pane}
       </form>
       <script>{prelude}{EDITOR_JS}</script>
     </body></html>
