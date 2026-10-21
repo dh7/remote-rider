@@ -14,3 +14,8 @@ service_registry.json
 .cursor/
 .opencode/
 env/dh7skills/
+
+# public access secrets (live outside the repo; backstop only)
+gateway.env
+*.cloudflared*.json
+deploy/*.json

@@ -170,7 +170,34 @@ Typical flow:
 3. Control persists the tab in `sessions.json`.
 4. The operator UI polls control-side session state and picks up the new tab.
 
-Authentication is not implemented yet.
+Tailnet access has no authentication; public access is covered below.
+
+## Public access (rr.sb39.xyz)
+
+Off-tailnet access goes through Cloudflare, never through an open port:
+
+```
+browser -> Cloudflare Access (Google login, one allowed email)
+        -> tunnel "remote-rider" (cloudflared, outbound from netochka)
+        -> gateway.py on 127.0.0.1:7010  (re-verifies the Access JWT, fail closed)
+             /m/<tailnet-ip>/<port>/...  -> that panel (HTTP, SSE, WebSocket)
+             everything else             -> the control hub
+```
+
+- `gateway.py` only proxies to tailnet IPs listed in `machines.json` / `sessions.json`,
+  ports 1024–65535; strips cookies/credentials/forwarding headers; adds no-store,
+  HSTS, nosniff, no-referrer, `frame-ancestors 'self'`; requires same-origin for
+  writes and WebSockets; logs method/path/status only.
+- Panels must use relative URLs (or honour `X-Forwarded-Prefix`) to work remotely.
+  Built-in Files/Notes/Skills, logs, monitor and ttyd do; arbitrary custom apps
+  with absolute URLs (`fetch('/status')`) will not.
+- Config (outside the repo): `~/.config/remote-rider/gateway.env` (mode 600, see
+  `deploy/gateway.env.example`) and `~/.cloudflared/remote-rider.yml` (see
+  `deploy/cloudflared-remote-rider.yml.example`). `start-control.sh` starts the
+  gateway only when `gateway.env` exists.
+- Tunnel: `./install-tunnel.sh` then `systemctl --user start rr-tunnel`.
+- **Kill switch:** `systemctl --user stop rr-tunnel` — the public URL goes dark,
+  tailnet access is unaffected.
 
 ## Agent Lifecycle
 

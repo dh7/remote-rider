@@ -178,8 +178,12 @@ Update logs: `logs/update-remote.log`
 
 ## Authentication
 
-Intentionally deferred. The current environment is a single-user Tailscale network.
-The API shape (session-scoped tab mutations, hub-proxied kills) is designed to make auth easy to add later.
+Tailnet access (`http://<tailnet-ip>:7000`) has none: the tailnet is the boundary.
+Public access (`https://rr.sb39.xyz`) is Cloudflare Access + `gateway.py`, which
+re-verifies the Access JWT on every request — see README "Public access" and
+`docs/superpowers/specs/2026-10-21-public-access-design.md`. Never bind the hub
+or any panel to a public interface, and never point the tunnel at anything but
+the gateway.
 
 ## Clipboard in Terminal Tabs
 

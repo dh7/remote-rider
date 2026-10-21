@@ -1,0 +1,12 @@
+[Unit]
+Description=Remote Rider public tunnel (cloudflared -> gateway on 127.0.0.1:7010)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config %h/.cloudflared/remote-rider.yml tunnel run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,9 @@
+# Copy to ~/.cloudflared/remote-rider.yml (outside the repo) and fill in TUNNEL_ID.
+# Exactly one public hostname; everything else is a 404 at the edge connector.
+tunnel: remote-rider
+credentials-file: /home/dh/.cloudflared/TUNNEL_ID.json
+metrics: 127.0.0.1:0
+ingress:
+  - hostname: rr.sb39.xyz
+    service: http://127.0.0.1:7010
+  - service: http_status:404
