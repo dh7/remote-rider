@@ -185,6 +185,9 @@ async function loadControlContext() {
     if (!response.ok) return null;
     state.controlSessionsAvailable = true;
     const payload = await response.json();
+    // Served through gateway.py (public access): panels must go through /m/<host>/<port>.
+    state.viaGateway = payload.via_gateway === true;
+    state.hubHost = String(payload.hub_host || '');
     return {
       machines: Array.isArray(payload.machines) ? payload.machines.map(normalizeProfile).filter(Boolean) : [],
       sessions: Array.isArray(payload.sessions) ? payload.sessions.map(normalizeProfile).filter(Boolean) : [],
@@ -923,12 +926,22 @@ function resolveTabEndpoint(server, tab) {
   return null;
 }
 
+function gatewayUrl(host, port, path) {
+  const target = isLocalHost(host) ? state.hubHost : host;
+  const p = path && path.startsWith('/') ? path : `/${path || ''}`;
+  return `/m/${encodeURIComponent(target)}/${port}${p}`;
+}
+
+function panelUrl(protocol, host, port, path) {
+  if (state.viaGateway) return gatewayUrl(host, port, path);
+  return `${protocol}://${resolveHost(host)}:${port}${path}`;
+}
+
 function endpointUrl(server, tab, endpoint) {
   const path = endpoint?.path || tab.path || '/';
   const protocol = endpoint?.protocol || tab.protocol || window.location.protocol.replace(':', '');
-  const host = resolveHost(endpoint?.host || sessionMachineHost(server));
   const port = endpoint?.port || tab.port;
-  return port ? `${protocol}://${host}:${port}${path}` : 'about:blank';
+  return port ? panelUrl(protocol, endpoint?.host || sessionMachineHost(server), port, path) : 'about:blank';
 }
 
 function ensureFrame(server, tab, endpoint) {
@@ -1172,7 +1185,7 @@ function renderDiscoveredServices() {
     useBtn.type = 'button';
     if (service.embeddable === false) {
       useBtn.textContent = 'Open';
-      useBtn.onclick = () => window.open(`${service.protocol}://${service.host}:${service.port}${service.path || '/'}`, '_blank', 'noopener');
+      useBtn.onclick = () => window.open(panelUrl(service.protocol, service.host, service.port, service.path || '/'), '_blank', 'noopener');
     } else {
       useBtn.textContent = 'Use as Tab';
       useBtn.onclick = () => applyDiscoveredServiceToEditor(service);
