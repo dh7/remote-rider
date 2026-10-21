@@ -29,14 +29,18 @@ becomes the only file server.
   `/services/files/start/proxy`.
 - `static/app.js`: remove the "Start fileserver" action (~L1303); the default
   panel list (~L702) uses the built-in Files tab.
-- Defaults: `machines.json`, `servers.json`, `session_templates.json`,
-  `storage.py` swap `{port: 8080, path: "/files"}` for the built-in Files tab
-  (`service: "builtin", port: 7000, builtin: "files"`).
-- Migration: on hub start, any tab in `sessions.json` with port 8080 /
-  `kind: fileserver` is rewritten to the built-in Files tab for that workspace.
-  Writes `sessions.json.bak-<timestamp>` first; idempotent.
-- `rr-files`: instead of asking the hub to spawn a fileserver, add/focus the
-  built-in Files tab for the workspace and print its URL.
+- Migration: `_normalize_control_session` rewrites any legacy Files tab
+  (port 8080, or `service: files` with a `/files` path) to the built-in Files
+  tab for that workspace, deduplicating against an existing built-in one. It is
+  a pure read-side transform (idempotent, nothing destroyed); the next save
+  persists it, and the tracked `sessions.json` is normalized in the same commit.
+  Service-registry rows of `kind: fileserver` are ignored and pruned.
+- Defaults (`machines.json`, `servers.json`, `session_templates.json`,
+  `storage.py`, `app.js`) simply drop the Files 8080 panel: new workspaces
+  already get built-in Files/Notes/Skills from `DEFAULT_WORKSPACE_TABS`.
+- `rr-files`: instead of asking the hub to spawn a fileserver, register the
+  workspace's built-in Files tab (with `?path=<rel>` when PATH is inside the
+  project that owns the `.rr` file) and print its URL.
 - README / Agents.md: drop fileserver and port 8080.
 
 ## Phase 2 — public gateway
@@ -68,15 +72,18 @@ app (`gateway.py`, Starlette/uvicorn, `httpx` for HTTP + SSE streaming,
   `ALLOWED_EMAIL`.
 - Config from `~/.config/remote-rider/gateway.env` (mode 600, outside the repo):
   `CF_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOWED_EMAIL`. Any missing → gateway
-  refuses to start. JWKS unreachable and no cache → 503, never "allow".
+  refuses to start. JWKS unreachable and no cache → 403, never "allow".
 - Failure response: bare `403` with no detail.
 
 ### Routing / no open proxy
 
-- `/m/<machine>/<port>/<rest>`: `<machine>` must be a name in `machines.json`;
-  `<port>` must be one of that machine's panel ports or a port the hub reports
-  in its live services for that machine. Target host is taken from inventory,
-  never from the request. Anything else → 404.
+- `/m/<host>/<port>/<rest>`: `<host>` must be a tailnet address
+  (100.64.0.0/10) that appears in `machines.json` or as a session's machine
+  host in `sessions.json`; `<port>` must be 1024–65535. Nothing outside the
+  inventory (router, LAN, cloud metadata, other tailnet nodes) is reachable.
+  A per-port allowlist is deliberately not added: anyone past the login already
+  has a shell, so it would add breakage without adding protection. Anything
+  else → 404.
 - `<rest>` is forwarded as-is after rejecting `..` segments (raw and
   percent-encoded) and control characters.
 - Everything not under `/m/` goes to the local hub (`<netochka-ip>:7000`).
@@ -107,12 +114,16 @@ sets cookies, so dropping `Set-Cookie` loses nothing.
 ### Prefix awareness in panel apps
 
 - Built-in Files/Notes/Skills (`workspace_builtins.py`): `_file_base()` and the
-  few other absolute URLs read `X-Forwarded-Prefix` (default `""`).
-- `logs.py`: `EventSource('/stream…')` → prefix-aware.
+  `/static/vendor/...` links read `X-Forwarded-Prefix` (validated against
+  `^/m/<host>/<port>$`, default `""`) through a request-scoped contextvar.
+- `logs.py`: `EventSource` URL becomes relative; also fix the reflected XSS
+  in its `?path=` input (unescaped into HTML) — harmless on a private tailnet,
+  a real hole once the UI has a public origin.
 - `monitor.py`, ttyd: no change (relative URLs).
-- Frontend `endpointUrl()` (`static/app.js`): when
-  `location.hostname === 'rr.sb39.xyz'` (configurable via `/control/context`),
-  return `/m/<machine>/<port><path>`; otherwise unchanged.
+- Frontend `endpointUrl()` (`static/app.js`): when `/control/context` reports
+  `via_gateway: true` (hub sees `X-RR-Via-Gateway: 1`, set only by the
+  gateway), return `/m/<host>/<port><path>`, mapping local hosts to the hub's
+  tailnet IP (`hub_host`); otherwise unchanged.
 
 ### Logging
 
@@ -132,8 +143,9 @@ headers, cookies, tokens, or bodies.
 
 ### Processes
 
-systemd user units `rr-gateway.service` and `rr-tunnel.service` on netochka,
-started by `boot-stack.sh` only in control mode. Kill switch:
+The gateway is started by `start-control.sh` (control host only) next to the
+hub, on `127.0.0.1:7010`, only when `gateway.env` exists. `cloudflared` runs as
+its own systemd user unit `rr-tunnel.service`. Kill switch:
 `systemctl --user stop rr-tunnel`.
 
 ### Secrets — never in the repo
