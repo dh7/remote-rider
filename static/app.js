@@ -699,7 +699,6 @@ function defaultTemplates() {
         { label: 'Terminal', port: 7681 },
         { label: 'Monitor', port: 8001 },
         { label: 'Logs', port: 8002 },
-        { label: 'Files', port: 8080, path: '/files' },
       ],
     },
   ];
@@ -1180,14 +1179,6 @@ function renderDiscoveredServices() {
     }
 
     buttons.appendChild(useBtn);
-    if (service.launchable && service.label === 'Files') {
-      const launchBtn = document.createElement('button');
-      launchBtn.className = 'secondary-btn';
-      launchBtn.type = 'button';
-      launchBtn.textContent = 'Launch New';
-      launchBtn.onclick = () => startFilesServiceForEditor(null);
-      buttons.appendChild(launchBtn);
-    }
     row.appendChild(main);
     row.appendChild(stateBadge);
     row.appendChild(buttons);
@@ -1252,68 +1243,6 @@ async function syncPanelEditorFromRemote() {
   const tempProfile = { tabs: state.panelEditor.panels };
   setTerminalSession(tempProfile, session);
   renderPanelEditorRows();
-}
-
-async function startFilesServiceForEditor(requestedPort = null) {
-  if (!state.panelEditor) return;
-  const server = state.sessions.find((s) => s.name === state.panelEditor.name);
-  if (!server) return;
-
-  const host = sessionMachineHost(server) || server.ip || '127.0.0.1';
-  const payload = {
-    host,
-    hub_port: 7000,
-    port: requestedPort,
-  };
-
-  let res;
-  try {
-    res = await fetch('/services/files/start/proxy', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).then((r) => r.json());
-  } catch (err) {
-    alert(`Failed to start files service: ${err.message}`);
-    return;
-  }
-
-  if (!res || res.status !== 'ok' || !res.service || !res.service.port) {
-    alert(`Could not start files service on ${host}: ${res?.reason || 'unknown error'}`);
-    return;
-  }
-
-  const filesPort = Number(res.service.port);
-  const filesPanel = state.panelEditor.panels.find((p) => p.label === 'Files');
-  if (filesPanel) {
-    filesPanel.service = 'files';
-    filesPanel.port = filesPort;
-    filesPanel.path = '/files';
-    filesPanel.protocol = 'http';
-  } else {
-    state.panelEditor.panels.push({ label: 'Files', service: 'files', port: filesPort, path: '/files', protocol: 'http' });
-  }
-
-  renderPanelEditorRows();
-  await refreshDiscoveredServices();
-  alert(`Files service started on ${host}:${filesPort} and wired into this workspace.`);
-}
-
-async function launchFilesServiceFromPanelEditor() {
-  const rawPort = prompt('Start fileserver on port (blank = auto pick):', '');
-  if (rawPort === null) return;
-
-  let requestedPort = null;
-  if (rawPort.trim()) {
-    const parsed = Number(rawPort.trim());
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-      alert('Invalid port. Use a number between 1 and 65535.');
-      return;
-    }
-    requestedPort = parsed;
-  }
-
-  await startFilesServiceForEditor(requestedPort);
 }
 
 function savePanelEditor() {
@@ -2097,7 +2026,6 @@ async function init() {
   document.getElementById('panel-cancel').onclick = closePanelModal;
   document.getElementById('panel-save').onclick = savePanelEditor;
   document.getElementById('panel-sync').onclick = syncPanelEditorFromRemote;
-  document.getElementById('panel-launch-files').onclick = launchFilesServiceFromPanelEditor;
   document.getElementById('panel-refresh-services').onclick = refreshDiscoveredServices;
   document.getElementById('panel-session-color').addEventListener('input', (e) => {
     if (!state.panelEditor) return;

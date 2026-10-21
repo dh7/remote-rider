@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-rr-files — start a file browser for a directory and register it as a tab in the control plane.
+rr-files — open the workspace's built-in Files viewer as a tab in the control plane.
 
 Usage:
-  rr-files [PATH]              Browse PATH (default: current directory)
+  rr-files [PATH]              Open PATH (default: current directory)
   rr-files --label LABEL       Custom tab label (default: "Files: <path>")
-  rr-files --hub URL           Hub URL (default: http://localhost:7000)
   rr-files --control URL       Control URL (overrides .rr)
   rr-files --session NAME      Session name (overrides .rr)
 
 Reads the nearest .rr file (walks up from PATH) for control URL and session name.
+PATH must live inside the project that owns that .rr file; otherwise the
+project root is opened.
 """
 import argparse
 import json
@@ -39,11 +40,21 @@ def _post(url: str, payload: dict) -> dict:
         return json.loads(resp.read())
 
 
+def files_tab_path(session_name: str, path: Path, project_root: Path | None) -> str:
+    base = f"/workspaces/{urllib.parse.quote(session_name, safe='')}/files"
+    if project_root is None:
+        return base
+    path, project_root = path.resolve(), project_root.resolve()
+    if path != project_root and project_root not in path.parents:
+        return base
+    rel = path.relative_to(project_root).as_posix()
+    return base if rel == "." else f"{base}?path={urllib.parse.quote(rel)}"
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Start a file browser tab in Remote Rider.")
+    parser = argparse.ArgumentParser(description="Open a built-in Files tab in Remote Rider.")
     parser.add_argument("path", nargs="?", default=".", help="Directory to browse (default: current)")
     parser.add_argument("--label", default=None)
-    parser.add_argument("--hub", default=None)
     parser.add_argument("--control", default=None)
     parser.add_argument("--session", default=None)
     args = parser.parse_args()
@@ -63,7 +74,6 @@ def main():
 
     control_url = args.control or rr.get("control") or os.environ.get("RR_CONTROL", "")
     session_name = args.session or rr.get("session") or os.environ.get("RR_SESSION", "")
-    hub_url = (args.hub or os.environ.get("RR_HUB", "http://localhost:7000")).rstrip("/")
 
     if not control_url:
         print("error: control URL not found — create a .rr file or pass --control", file=sys.stderr)
@@ -75,42 +85,20 @@ def main():
     label = args.label or f"Files: {path}"
     control_url = control_url.rstrip("/")
 
-    print(f"Starting file browser for {path}…")
-    try:
-        result = _post(f"{hub_url}/services/files/start", {
-            "root_path": str(path),
-            "session_name": session_name,
-        })
-    except Exception as exc:
-        print(f"error: could not reach hub at {hub_url}: {exc}", file=sys.stderr)
-        sys.exit(1)
+    project_root = rr_path.parent if rr_path else None
+    tab_path = files_tab_path(session_name, path, project_root)
+    if project_root and tab_path.endswith("/files") and path.resolve() != project_root.resolve():
+        print(f"note: {path} is outside {project_root}; opening the project root", file=sys.stderr)
 
-    if result.get("status") != "ok":
-        print(f"error: hub failed to start fileserver: {result.get('reason', result)}", file=sys.stderr)
-        sys.exit(1)
-
-    port = result["service"]["port"]
-    machine_host = result.get("bind_host") or os.environ.get("PUBLIC_HOST") or ""
-
-    print(f"Registering tab '{label}' in session '{session_name}'…")
     try:
         tab_result = _post(
             f"{control_url}/sessions/{urllib.parse.quote(session_name, safe='')}/tabs",
-            {
-                "label": label,
-                "port": port,
-                "path": "/files",
-                "protocol": "http",
-                "ephemeral": True,
-                **({"machine_host": machine_host} if machine_host else {}),
-            },
+            {"label": label, "service": "builtin", "port": 7000, "path": tab_path, "protocol": "http"},
         )
-        print(f"Tab '{label}' {tab_result.get('action', 'registered')} in session '{session_name}'.")
     except Exception as exc:
-        print(f"warning: could not register tab at control: {exc}", file=sys.stderr)
-
-    print(f"File browser running on port {port}.")
-
+        print(f"error: could not register tab at control: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Tab '{label}' {tab_result.get('action', 'registered')} in session '{session_name}' -> {tab_path}")
 
 if __name__ == "__main__":
     main()

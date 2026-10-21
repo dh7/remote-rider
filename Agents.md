@@ -53,7 +53,7 @@ Owned by the control host.
 ### 3. Remote Runtime / Services
 Owned by each remote machine.
 - Source of truth: live runtime on that machine
-- Purpose: tmux sessions, health, live services, spawned fileservers, agent processes
+- Purpose: tmux sessions, health, live services, agent processes
 - APIs: `/services`, `/tmux/sessions`, `/services/files/start`, `/agents/runtime`, `/agents/start`, `/agents/stop`, and related runtime routes
 
 ### 4. Agent/Tool-Initiated Workspace Mutation
@@ -203,7 +203,7 @@ cd ~/code/remote-rider
 git pull --ff-only
 ./install-service.sh                  # idempotent: installs unit, enables linger + byobu mouse-off
 systemctl --user restart remote-rider # bring the stack up now / restart it
-systemctl --user status  remote-rider # ttyd + hub + monitor + logs + fileserver, one cgroup
+systemctl --user status  remote-rider # ttyd + hub + monitor + logs, one cgroup
 journalctl --user -u remote-rider -e  # boot/start logs
 ```
 

@@ -5,7 +5,7 @@ Browser-based terminal dashboard with tabs for:
 - Terminal (`ttyd`)
 - Process monitor (`monitor.py`)
 - Log viewer (`logs.py`)
-- File browser/editor (`fileserver.py`)
+- File browser/editor (built-in hub viewer at `/workspaces/<session>/files`)
 
 ## Key Architecture
 
@@ -24,7 +24,6 @@ This avoids cross-machine profile drift and lets each client keep its own view l
 - Terminal: `7681`
 - Monitor: `8001`
 - Logs: `8002`
-- Files: `8080`
 
 ## CLI Install
 
@@ -135,7 +134,7 @@ Each template entry uses:
 - `GET /control/context` -> control-side view of known machines, sessions, and templates
 - `GET /session-templates` -> panel templates for add-session modal
 - `GET /panel/status?host=<ip>&port=<n>` -> single panel port health probe
-- `GET /services` -> services running on this host (including extra fileserver instances)
+- `GET /services` -> services running on this host
 - `GET /services/proxy?host=<ip>&port=7000` -> service snapshot from selected server
 - `GET /tmux/sessions` -> local host tmux sessions
 - `GET /tmux/sessions/proxy?host=<ip>&port=7000` -> tmux sessions from a selected server
@@ -149,8 +148,6 @@ Each template entry uses:
 - `POST /admin/update-remote/proxy` -> schedule `git pull` + remote stack restart on a selected server
 - `GET /machines/proxy?host=<ip>&port=7000` -> machine panel config from selected server
 - `GET /servers/proxy?host=<ip>&port=7000` -> legacy-compatible alias
-- `POST /services/files/start` -> legacy additional fileserver starter
-- `POST /services/files/start/proxy` -> legacy proxied fileserver starter
 - `POST /tmux/kill` -> kill a tmux session on local host or proxied host
 
 ## Run Modes
@@ -211,7 +208,7 @@ Current limitation:
 
 ## Why Files Panel Breaks Sometimes
 
-Most breakage comes from port drift on remote nodes. If `8080` is occupied, `start-remote.sh` can shift Files to another free port.
+Most breakage comes from port drift on remote nodes. If a panel port is occupied, `start-remote.sh` shifts that service to another free port.
 When a saved session still points to the old port, iframe loads fail. Fix it by opening session setup (`S`) and pressing `Sync From Remote`.
 
 ## Setup
