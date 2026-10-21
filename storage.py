@@ -99,6 +99,36 @@ def _normalize_session_tab(payload: dict[str, Any]) -> dict[str, Any] | None:
     return tab
 
 
+def _builtin_files_tab(session_name: str) -> dict[str, Any]:
+    return {
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": f"/workspaces/{quote(session_name, safe='')}/files",
+        "protocol": "http",
+    }
+
+
+def _is_legacy_files_tab(tab: dict[str, Any]) -> bool:
+    if tab.get("port") == 8080:
+        return True
+    return tab.get("service") == "files" and str(tab.get("path", "")).startswith("/files")
+
+
+def _migrate_legacy_files_tabs(session_name: str, tabs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Legacy fileserver.py (port 8080) is retired: point its tabs at the built-in viewer."""
+    builtin = _builtin_files_tab(session_name)
+    out: list[dict[str, Any]] = []
+    for tab in tabs:
+        if _is_legacy_files_tab(tab):
+            if any(t.get("path") == builtin["path"] for t in tabs + out):
+                continue
+            tab = dict(builtin)
+        out.append(tab)
+    return out
+
+
 def _normalize_control_session(payload: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
@@ -123,6 +153,7 @@ def _normalize_control_session(payload: dict[str, Any]) -> dict[str, Any] | None
             tab = _normalize_session_tab(row)
             if tab:
                 tabs.append(tab)
+    tabs = _migrate_legacy_files_tabs(name, tabs)
     session: dict[str, Any] = {
         "name": name,
         "machine": {
@@ -185,7 +216,6 @@ def _default_templates() -> list[dict[str, Any]]:
                 {"label": "Terminal", "port": 7681},
                 {"label": "Monitor", "port": 8001},
                 {"label": "Logs", "port": 8002},
-                {"label": "Files", "port": 8080, "path": "/files"},
             ],
         },
         {
@@ -194,7 +224,6 @@ def _default_templates() -> list[dict[str, Any]]:
             "panels": [
                 {"label": "Monitor", "port": 8001},
                 {"label": "Logs", "port": 8002},
-                {"label": "Files", "port": 8080, "path": "/files"},
             ],
         },
     ]

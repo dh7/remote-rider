@@ -274,11 +274,12 @@
         "port": 8002
       },
       {
-        "id": "tab-j3m2jo0h",
+        "id": "tab-files",
         "label": "Files",
-        "service": "files",
-        "port": 8080,
-        "path": "/files"
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/gx10-gx10-1/files",
+        "protocol": "http"
       },
       {
         "id": "tab-wyimsdna",
@@ -397,11 +398,12 @@
         "port": 8002
       },
       {
-        "id": "tab-kvi4wh49",
+        "id": "tab-files",
         "label": "Files",
-        "service": "files",
-        "port": 8080,
-        "path": "/files"
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/hermes-hermes-1/files",
+        "protocol": "http"
       },
       {
         "id": "tab-skills",
@@ -502,11 +504,12 @@
         "port": 8002
       },
       {
-        "id": "tab-cvc2q50l",
+        "id": "tab-files",
         "label": "Files",
-        "service": "files",
-        "port": 8080,
-        "path": "/files"
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/image-store-image-store-image-store/files",
+        "protocol": "http"
       },
       {
         "id": "tab-skills",
