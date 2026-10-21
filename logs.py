@@ -1,3 +1,4 @@
+from html import escape
 import subprocess
 from pathlib import Path
 
@@ -46,7 +47,7 @@ def index(path: str = DEFAULT_LOG) -> str:
 <html><head>{STYLE}</head><body>
 <div id="toolbar">
   <label>File:</label>
-  <input id="path" value="{path}">
+  <input id="path" value="{escape(path, quote=True)}">
   <button onclick="reload()">Tail</button>
 </div>
 <div id="log"></div>
@@ -56,7 +57,7 @@ def index(path: str = DEFAULT_LOG) -> str:
     const path = document.getElementById('path').value;
     if (es) es.close();
     document.getElementById('log').innerHTML = '';
-    es = new EventSource('/stream?path=' + encodeURIComponent(path));
+    es = new EventSource('stream?path=' + encodeURIComponent(path));
     es.onmessage = function(e) {{
       const log = document.getElementById('log');
       const div = document.createElement('div');

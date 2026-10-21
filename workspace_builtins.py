@@ -14,6 +14,7 @@ from urllib.request import urlopen
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
+import forwarded
 from config import HERE, SESSIONS_LOCK, SERVICE_LOCK
 from storage import _load_normalized_control_sessions, _load_service_registry
 
@@ -244,7 +245,7 @@ input { background: #11131a; border: 1px solid #3e4455; color: #eee; font-family
 
 
 def _file_base(session_name: str) -> str:
-    return f"/workspaces/{quote(session_name, safe='')}/files"
+    return f"{forwarded.prefix()}/workspaces/{quote(session_name, safe='')}/files"
 
 
 def _breadcrumbs(session_name: str, path: str) -> str:
@@ -694,7 +695,7 @@ try{
   if(window.CodeMirror){
     const info=(CodeMirror.findModeByFileName&&CodeMirror.findModeByFileName(REL))||null;
     _cm=CodeMirror.fromTextArea(ta,{lineNumbers:true,theme:'material-darker',matchBrackets:true,mode:info?info.mode:null});
-    if(info&&info.mode){CodeMirror.modeURL='/static/vendor/codemirror/mode/%N/%N.min.js';try{CodeMirror.autoLoadMode(_cm,info.mode);}catch(e){}}
+    if(info&&info.mode){CodeMirror.modeURL=STATIC_BASE+'/vendor/codemirror/mode/%N/%N.min.js';try{CodeMirror.autoLoadMode(_cm,info.mode);}catch(e){}}
   }
 }catch(e){_cm=null;}
 function srcText(){return _cm?_cm.getValue():ta.value;}
@@ -808,16 +809,18 @@ def files_edit(session_name: str, path: str) -> HTMLResponse:
     ) if is_csv else ""
     # Vendored CodeMirror (no CDN). Loads before the body script; the editor
     # degrades to a plain textarea if these 404 (e.g. a not-yet-updated machine).
+    st = forwarded.prefix() + "/static"
     cm_assets = (
-        '<link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css">'
-        '<link rel="stylesheet" href="/static/vendor/codemirror/theme/material-darker.min.css">'
-        '<script src="/static/vendor/codemirror/codemirror.min.js"></script>'
-        '<script src="/static/vendor/codemirror/mode/meta.min.js"></script>'
-        '<script src="/static/vendor/codemirror/addon/mode/loadmode.min.js"></script>'
-        '<script src="/static/vendor/codemirror/addon/edit/matchbrackets.min.js"></script>'
+        f'<link rel="stylesheet" href="{st}/vendor/codemirror/codemirror.min.css">'
+        f'<link rel="stylesheet" href="{st}/vendor/codemirror/theme/material-darker.min.css">'
+        f'<script src="{st}/vendor/codemirror/codemirror.min.js"></script>'
+        f'<script src="{st}/vendor/codemirror/mode/meta.min.js"></script>'
+        f'<script src="{st}/vendor/codemirror/addon/mode/loadmode.min.js"></script>'
+        f'<script src="{st}/vendor/codemirror/addon/edit/matchbrackets.min.js"></script>'
     )
     prelude = (
         f"const BASE = {json.dumps(base)};\n"
+        f"const STATIC_BASE = {json.dumps(st)};\n"
         f"const REL = {json.dumps(rel)};\n"
         f"const IS_MD = {json.dumps(is_md)};\n"
     )

@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import socket
 from typing import Any
@@ -8,6 +9,8 @@ from urllib.request import urlopen
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+
+from forwarded import ForwardedMiddleware, via_gateway
 
 from config import (
     HERE,
@@ -109,6 +112,7 @@ from updates import (
 from workspace_builtins import router as workspace_builtins_router
 
 app = FastAPI()
+app.add_middleware(ForwardedMiddleware)
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 app.include_router(workspace_builtins_router)
 
@@ -324,6 +328,8 @@ def control_context() -> dict[str, Any]:
         "machines": servers(),
         "sessions": sessions,
         "session_templates": _load_templates(),
+        "via_gateway": via_gateway(),
+        "hub_host": os.getenv("PUBLIC_HOST", ""),
     }
 
 
