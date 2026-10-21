@@ -80,11 +80,12 @@ def load_inventory(root: Path = HERE) -> set[str]:
     return hosts
 
 
-def _upstream_headers(headers, prefix: str, drop: set[str] = frozenset()) -> list[tuple[str, str]]:
+def _upstream_headers(headers, prefix: str, drop: set[str] = frozenset(),
+                      keep: set[str] = frozenset()) -> list[tuple[str, str]]:
     out = []
     for key, value in headers.items():
         k = key.lower()
-        if k in DROP_REQ or k in drop or k.startswith(("cf-", "x-forwarded-")):
+        if k not in keep and (k in DROP_REQ or k in drop or k.startswith(("cf-", "x-forwarded-"))):
             continue
         out.append((key, value))
     out += [("x-forwarded-proto", "https"), ("x-rr-via-gateway", "1")]
@@ -99,9 +100,10 @@ def create_app(verifier: AccessVerifier, public_origin: str, hub_url: str,
                                timeout=httpx.Timeout(30.0, read=None))
     hub = urlsplit(hub_url)
 
-    def authorized(headers) -> bool:
+    async def authorized(headers) -> bool:
+        # verify() may fetch Cloudflare's JWKS over the network: keep it off the event loop
         try:
-            verifier.verify(headers.get("cf-access-jwt-assertion"))
+            await asyncio.to_thread(verifier.verify, headers.get("cf-access-jwt-assertion"))
             return True
         except AuthError:
             return False
@@ -133,7 +135,7 @@ def create_app(verifier: AccessVerifier, public_origin: str, hub_url: str,
     async def http_proxy(request: Request) -> Response:
         started = time.monotonic()
         path_for_log = request.url.path
-        if not authorized(request.headers):
+        if not await authorized(request.headers):
             return _deny()
         if request.method not in SAFE_METHODS and request.headers.get("origin") != public_origin:
             return _deny()
@@ -148,7 +150,8 @@ def create_app(verifier: AccessVerifier, public_origin: str, hub_url: str,
         has_body = "content-length" in request.headers or "transfer-encoding" in request.headers
         upstream_req = client.build_request(
             request.method, httpx.URL(url),
-            headers=_upstream_headers(request.headers, prefix),
+            # keep Content-Length so bodies are not re-sent chunked (stdlib servers reject that)
+            headers=_upstream_headers(request.headers, prefix, keep={"content-length"} if has_body else set()),
             content=request.stream() if has_body else None,
         )
         try:
@@ -161,7 +164,11 @@ def create_app(verifier: AccessVerifier, public_origin: str, hub_url: str,
         if location and prefix and location.startswith(base):
             headers = [(k, v) for k, v in headers if k.lower() != "location"]
             headers.append(("location", prefix + (location[len(base):] or "/")))
-        headers = [(k, v) for k, v in headers if k.lower() not in SECURITY_HEADERS] + list(SECURITY_HEADERS.items())
+        # Backend CSP is kept (it may sandbox untrusted content); ours is added as a
+        # separate header, and browsers enforce every CSP header they receive.
+        headers = [(k, v) for k, v in headers
+                   if k.lower() not in SECURITY_HEADERS or k.lower() == "content-security-policy"]
+        headers += list(SECURITY_HEADERS.items())
         log.info("%s %s %s %.0fms", request.method, path_for_log, upstream.status_code,
                  (time.monotonic() - started) * 1000)
         response = StreamingResponse(upstream.aiter_raw(), status_code=upstream.status_code,
@@ -170,7 +177,7 @@ def create_app(verifier: AccessVerifier, public_origin: str, hub_url: str,
         return response
 
     async def ws_proxy(websocket: WebSocket) -> None:
-        if not authorized(websocket.headers) or websocket.headers.get("origin") != public_origin:
+        if not await authorized(websocket.headers) or websocket.headers.get("origin") != public_origin:
             await websocket.close(code=1008)
             return
         target = resolve(websocket.scope.get("raw_path") or websocket.url.path.encode())

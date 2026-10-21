@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import mimetypes
 import os
 import subprocess
 from importlib.machinery import SourceFileLoader
@@ -450,7 +451,14 @@ def files_raw(session_name: str, path: str) -> FileResponse:
     target = _safe(root, path)
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="not found")
-    return FileResponse(target)
+    # Raw workspace files are untrusted content and, behind the public gateway, share
+    # the hub's origin: never let them run script there. Media stays inline for the
+    # <img>/<video> previews; everything else (html, svg, ...) downloads.
+    media_type, _ = mimetypes.guess_type(target.name)
+    inline = bool(media_type) and media_type.split("/")[0] in ("image", "video", "audio") and media_type != "image/svg+xml"
+    headers = {"Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff"}
+    return FileResponse(target, headers=headers, content_disposition_type="inline" if inline else "attachment",
+                        filename=None if inline else target.name)
 
 
 def _preview_topbar(session_name: str, rel: str) -> str:

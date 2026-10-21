@@ -111,9 +111,10 @@ def _builtin_files_tab(session_name: str) -> dict[str, Any]:
 
 
 def _is_legacy_files_tab(tab: dict[str, Any]) -> bool:
-    if tab.get("port") == 8080:
-        return True
-    return tab.get("service") == "files" and str(tab.get("path", "")).startswith("/files")
+    """A tab that pointed at the retired fileserver.py — never an unrelated app on 8080."""
+    path = str(tab.get("path", ""))
+    looks_like_files = tab.get("service") == "files" or tab.get("label") == "Files" or path.startswith("/files")
+    return looks_like_files and (tab.get("port") == 8080 or tab.get("service") == "files" and path.startswith("/files"))
 
 
 def _migrate_legacy_files_tabs(session_name: str, tabs: list[dict[str, Any]]) -> list[dict[str, Any]]:
