@@ -41,7 +41,6 @@ HOST="${TAILSCALE_IP:-127.0.0.1}"
 TERM_PORT="7681"
 MONITOR_PORT="8001"
 LOGS_PORT="8002"
-FILES_PORT="8080"
 HUB_PORT="7000"
 
 port_busy() {
@@ -159,10 +158,9 @@ stop_matching "$VENV/uvicorn main:app --host $HOST --port"
 TERM_PORT="$(choose_port ttyd "$TERM_PORT")"
 MONITOR_PORT="$(choose_port monitor "$MONITOR_PORT" "$TERM_PORT")"
 LOGS_PORT="$(choose_port logs "$LOGS_PORT" "$TERM_PORT" "$MONITOR_PORT")"
-FILES_PORT="$(choose_port files "$FILES_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT")"
-HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT" "$FILES_PORT")"
+HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT")"
 
-export TERM_PORT MONITOR_PORT LOGS_PORT FILES_PORT
+export TERM_PORT MONITOR_PORT LOGS_PORT
 export HUB_PORT
 export BIND_HOST="$HOST"
 export PUBLIC_HOST="$HOST"
@@ -186,9 +184,6 @@ echo "  monitor   -> http://$HOST:$MONITOR_PORT"
 echo "$!" > "$PID_DIR/logs.pid"
 echo "  logs      -> http://$HOST:$LOGS_PORT"
 
-"$VENV/uvicorn" fileserver:app --host "$HOST" --port "$FILES_PORT" > "$LOG_DIR/fileserver.log" 2>&1 &
-echo "$!" > "$PID_DIR/fileserver.pid"
-echo "  files     -> http://$HOST:$FILES_PORT/files"
 
 "$VENV/uvicorn" main:app --host "$HOST" --port "$HUB_PORT" > "$LOG_DIR/hub.log" 2>&1 &
 echo "$!" > "$PID_DIR/hub.pid"

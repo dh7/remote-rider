@@ -39,20 +39,6 @@ class TmuxSendKeysRequest(BaseModel):
     port: int = Field(default=7000, ge=1, le=65535)
 
 
-class StartFilesServiceRequest(BaseModel):
-    port: int | None = Field(default=None, ge=1, le=65535)
-    root_path: str | None = None
-    session_name: str | None = Field(default=None, min_length=1, max_length=200)
-
-
-class StartFilesServiceProxyRequest(BaseModel):
-    host: str
-    hub_port: int = Field(default=7000, ge=1, le=65535)
-    port: int | None = Field(default=None, ge=1, le=65535)
-    root_path: str | None = None
-    session_name: str | None = Field(default=None, min_length=1, max_length=200)
-
-
 class SessionsPutRequest(BaseModel):
     sessions: list[dict[str, Any]]
     base_version: str | None = None

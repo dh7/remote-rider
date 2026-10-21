@@ -77,7 +77,6 @@ HUB_PORT="${HUB_PORT:-7000}"
 TERM_PORT="${TERM_PORT:-7681}"
 MONITOR_PORT="${MONITOR_PORT:-8001}"
 LOGS_PORT="${LOGS_PORT:-8002}"
-FILES_PORT="${FILES_PORT:-8080}"
 RUN_MODE="${RUN_MODE:-all}"
 
 port_busy() {
@@ -140,10 +139,9 @@ choose_port() {
 TERM_PORT="$(choose_port ttyd "$TERM_PORT")"
 MONITOR_PORT="$(choose_port monitor "$MONITOR_PORT" "$TERM_PORT")"
 LOGS_PORT="$(choose_port logs "$LOGS_PORT" "$TERM_PORT" "$MONITOR_PORT")"
-FILES_PORT="$(choose_port files "$FILES_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT")"
-HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT" "$FILES_PORT")"
+HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT")"
 
-export TERM_PORT MONITOR_PORT LOGS_PORT FILES_PORT
+export TERM_PORT MONITOR_PORT LOGS_PORT
 export RUN_MODE
 
 TTYD_BIN="${TTYD_BIN:-}"
@@ -194,10 +192,6 @@ echo "  monitor -> http://$PUBLIC_HOST:$MONITOR_PORT"
 "$VENV/uvicorn" logs:app --host "$BIND_HOST" --port "$LOGS_PORT" > "$LOG_DIR/logs.log" 2>&1 &
 echo "$!" > "$PID_DIR/logs.pid"
 echo "  logs    -> http://$PUBLIC_HOST:$LOGS_PORT"
-
-"$VENV/uvicorn" fileserver:app --host "$BIND_HOST" --port "$FILES_PORT" > "$LOG_DIR/fileserver.log" 2>&1 &
-echo "$!" > "$PID_DIR/fileserver.pid"
-echo "  files   -> http://$PUBLIC_HOST:$FILES_PORT/files"
 
 "$VENV/uvicorn" main:app --host "$BIND_HOST" --port "$HUB_PORT" > "$LOG_DIR/hub.log" 2>&1 &
 echo "$!" > "$PID_DIR/hub.pid"

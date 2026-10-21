@@ -45,8 +45,6 @@ from models import (
     SessionsPutRequest,
     SessionTabDeleteRequest,
     SessionTabUpsertRequest,
-    StartFilesServiceProxyRequest,
-    StartFilesServiceRequest,
     TabRequest,
     TmuxKillRequest,
     TmuxSendKeysRequest,
@@ -57,8 +55,6 @@ from services import (
     _kill_remote_service,
     _kill_service_by_port,
     _local_services_snapshot,
-    _start_files_service_local,
-    _start_remote_files_service,
 )
 from storage import (
     _apply_port_overrides,
@@ -212,8 +208,6 @@ Runtime:
 - panel health probe: GET {base}/panel/status?host=<ip>&port=<port>
 - local services: GET {base}/services
 - remote services: GET {base}/services/proxy?host=<ip>&port=7000
-- start files service: POST {base}/services/files/start
-- start remote files service: POST {base}/services/files/start/proxy
 - stop local service: POST {base}/services/stop
 - stop remote service: POST {base}/services/stop/proxy
 - tmux sessions: GET {base}/tmux/sessions
@@ -643,17 +637,6 @@ def services_status() -> dict[str, Any]:
 @app.get("/services/proxy")
 def services_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
     return _fetch_remote_services(host, port)
-
-
-@app.post("/services/files/start")
-def start_files_service(payload: StartFilesServiceRequest) -> dict[str, Any]:
-    _require_runtime_api()
-    return _start_files_service_local(payload.port, root_path=payload.root_path, session_name=payload.session_name)
-
-
-@app.post("/services/files/start/proxy")
-def start_files_service_proxy(payload: StartFilesServiceProxyRequest) -> dict[str, Any]:
-    return _start_remote_files_service(payload.host, payload.hub_port, payload.port, root_path=payload.root_path, session_name=payload.session_name)
 
 
 @app.post("/services/stop")

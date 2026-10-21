@@ -1,0 +1,2 @@
+-r requirements-gateway.txt
+pytest>=8
