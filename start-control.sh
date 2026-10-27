@@ -101,9 +101,11 @@ if [[ "$ACTION" == "--stop" || "$ACTION" == "stop" ]]; then
   exit 0
 fi
 
-setsid "$VENV/uvicorn" main:app --host "$HOST" --port "$PORT" > "$LOG_DIR/hub.log" 2>&1 < /dev/null &
+# Bind the hub to 0.0.0.0 so clients hitting localhost:$PORT work alongside the
+# Tailscale and LAN addresses. $HOST is still advertised as $PUBLIC_HOST.
+setsid "$VENV/uvicorn" main:app --host 0.0.0.0 --port "$PORT" > "$LOG_DIR/hub.log" 2>&1 < /dev/null &
 echo "$!" > "$PID_DIR/hub.pid"
 
-echo "Control hub: http://$HOST:$PORT"
+echo "Control hub: http://$HOST:$PORT (also http://127.0.0.1:$PORT)"
 
 start_gateway

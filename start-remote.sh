@@ -153,7 +153,7 @@ stop_matching "ttyd.*-i $HOST -p $TERM_PORT.*terminal-entry.sh"
 stop_matching "$VENV/uvicorn monitor:app --host $HOST --port"
 stop_matching "$VENV/uvicorn logs:app --host $HOST --port"
 stop_matching "$VENV/uvicorn fileserver:app --host $HOST --port"
-stop_matching "$VENV/uvicorn main:app --host $HOST --port"
+stop_matching "$VENV/uvicorn main:app --host [^ ]* --port"
 
 TERM_PORT="$(choose_port ttyd "$TERM_PORT")"
 MONITOR_PORT="$(choose_port monitor "$MONITOR_PORT" "$TERM_PORT")"
@@ -185,9 +185,11 @@ echo "$!" > "$PID_DIR/logs.pid"
 echo "  logs      -> http://$HOST:$LOGS_PORT"
 
 
-"$VENV/uvicorn" main:app --host "$HOST" --port "$HUB_PORT" > "$LOG_DIR/hub.log" 2>&1 &
+# Bind the hub to 0.0.0.0 so clients hitting localhost:7000 (default rr-init) work
+# alongside the Tailscale and LAN addresses. ttyd/monitor/logs stay pinned to $HOST.
+"$VENV/uvicorn" main:app --host 0.0.0.0 --port "$HUB_PORT" > "$LOG_DIR/hub.log" 2>&1 &
 echo "$!" > "$PID_DIR/hub.pid"
-echo "  api/hub   -> http://$HOST:$HUB_PORT"
+echo "  api/hub   -> http://$HOST:$HUB_PORT (also http://127.0.0.1:$HUB_PORT)"
 
 echo ""
 echo "Remote stack ready on $HOST"
