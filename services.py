@@ -99,8 +99,6 @@ def _local_services_snapshot() -> dict[str, Any]:
     term_enabled = os.getenv("DISABLE_TERMINAL") != "1"
     services = [
         _service_entry("terminal", int(os.getenv("TERM_PORT", "7681")), enabled=term_enabled),
-        _service_entry("monitor", int(os.getenv("MONITOR_PORT", "8001"))),
-        _service_entry("logs", int(os.getenv("LOGS_PORT", "8002"))),
         _service_entry("hub", int(os.getenv("HUB_PORT", "7000"))),
     ]
 

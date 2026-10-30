@@ -44,10 +44,3 @@ def test_hub_control_context_reports_gateway(monkeypatch):
     d = c.get("/control/context", headers={"X-RR-Via-Gateway": "1"}).json()
     assert d["via_gateway"] is True and d["hub_host"] == "100.119.43.10"
     assert c.get("/control/context").json()["via_gateway"] is False
-
-
-def test_logs_index_escapes_and_is_relative():
-    import logs
-    r = TestClient(logs.app).get("/", params={"path": '"><script>alert(1)</script>'})
-    assert "<script>alert(1)" not in r.text
-    assert "EventSource('stream?path='" in r.text

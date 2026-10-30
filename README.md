@@ -3,8 +3,6 @@
 Browser-based terminal dashboard with tabs for:
 
 - Terminal (`ttyd`)
-- Process monitor (`monitor.py`)
-- Log viewer (`logs.py`)
 - File browser/editor (built-in hub viewer at `/workspaces/<session>/files`)
 
 ## Key Architecture
@@ -22,8 +20,6 @@ This avoids cross-machine profile drift and lets each client keep its own view l
 
 - Hub/API: `7000`
 - Terminal: `7681`
-- Monitor: `8001`
-- Logs: `8002`
 
 ## CLI Install
 
@@ -40,7 +36,7 @@ Make sure `~/.local/bin` is in `PATH`.
 
 ### 1) Remote node mode (run on each target server)
 
-Starts terminal + monitor + logs + API/hub endpoint on that server. The hub also serves built-in
+Starts terminal + API/hub endpoint on that server. The hub also serves built-in
 workspace Files, Skills, and Notes views.
 
 ```bash
@@ -98,7 +94,7 @@ Each workspace row includes setup. Use it to maintain tab mappings after creatio
 - Add built-in or custom service tabs
 - Save updated workspace config to browser localStorage
 
-This is the fastest way to fix broken Monitor/Logs/Files/Terminal mappings after restarts or port shifts.
+This is the fastest way to fix broken Files/Terminal mappings after restarts or port shifts.
 
 The tabs bar also includes `+` to open setup quickly and add a new panel/tab to the active workspace.
 Each tab shows a status dot:
@@ -189,7 +185,7 @@ browser -> Cloudflare Access (Google login, one allowed email)
   HSTS, nosniff, no-referrer, `frame-ancestors 'self'`; requires same-origin for
   writes and WebSockets; logs method/path/status only.
 - Panels must use relative URLs (or honour `X-Forwarded-Prefix`) to work remotely.
-  Built-in Files/Notes/Skills, logs, monitor and ttyd do; arbitrary custom apps
+  Built-in Files/Notes/Skills and ttyd do; arbitrary custom apps
   with absolute URLs (`fetch('/status')`) will not.
 - Config (outside the repo): `~/.config/remote-rider/gateway.env` (mode 600, see
   `deploy/gateway.env.example`) and `~/.cloudflared/remote-rider.yml` (see

@@ -19,8 +19,6 @@ AGENT_LOCK = threading.Lock()
 
 SERVICE_PANEL_DEFAULTS: dict[str, dict] = {
     "terminal": {"label": "Terminal", "path": "/", "protocol": "http", "launchable": False, "embeddable": True},
-    "monitor": {"label": "Monitor", "path": "/", "protocol": "http", "launchable": False, "embeddable": True},
-    "logs": {"label": "Logs", "path": "/", "protocol": "http", "launchable": False, "embeddable": True},
     "files": {"label": "Files", "path": "/files", "protocol": "http", "launchable": True, "embeddable": True},
     "hub": {"label": "Hub", "path": "/", "protocol": "http", "launchable": False, "embeddable": False},
 }

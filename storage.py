@@ -37,9 +37,6 @@ def _save_machine_inventory(machines: list[dict[str, Any]]) -> None:
 def _apply_port_overrides(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     env_map = {
         "Terminal": "TERM_PORT",
-        "Monitor": "MONITOR_PORT",
-        "Logs": "LOGS_PORT",
-        "Files": "FILES_PORT",
     }
     overridden: list[dict[str, Any]] = []
     for server in servers:
@@ -130,6 +127,16 @@ def _migrate_legacy_files_tabs(session_name: str, tabs: list[dict[str, Any]]) ->
     return out
 
 
+RETIRED_PANELS = {"monitor": ("Monitor", 8001), "logs": ("Logs", 8002)}
+
+
+def _is_retired_panel_tab(tab: dict[str, Any]) -> bool:
+    """monitor.py / logs.py are retired; only their own tabs, never an unrelated app on 8001/8002."""
+    if tab.get("service") in RETIRED_PANELS:
+        return True
+    return (tab.get("label"), tab.get("port")) in RETIRED_PANELS.values()
+
+
 def _normalize_control_session(payload: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
@@ -154,7 +161,7 @@ def _normalize_control_session(payload: dict[str, Any]) -> dict[str, Any] | None
             tab = _normalize_session_tab(row)
             if tab:
                 tabs.append(tab)
-    tabs = _migrate_legacy_files_tabs(name, tabs)
+    tabs = _migrate_legacy_files_tabs(name, [t for t in tabs if not _is_retired_panel_tab(t)])
     session: dict[str, Any] = {
         "name": name,
         "machine": {
@@ -215,16 +222,6 @@ def _default_templates() -> list[dict[str, Any]]:
             "label": "Standard",
             "panels": [
                 {"label": "Terminal", "port": 7681},
-                {"label": "Monitor", "port": 8001},
-                {"label": "Logs", "port": 8002},
-            ],
-        },
-        {
-            "id": "ops",
-            "label": "Ops (no terminal)",
-            "panels": [
-                {"label": "Monitor", "port": 8001},
-                {"label": "Logs", "port": 8002},
             ],
         },
     ]

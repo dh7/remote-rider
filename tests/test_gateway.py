@@ -131,7 +131,7 @@ def test_streaming_response_is_not_buffered():
     def sse(request):
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=chunks())
 
-    with client(transport=httpx.MockTransport(sse)).stream("GET", f"/m/{HOST}/8002/stream", headers=auth()) as r:
+    with client(transport=httpx.MockTransport(sse)).stream("GET", f"/m/{HOST}/9000/stream", headers=auth()) as r:
         body = b"".join(r.iter_raw())
     assert body == b"data: 0\n\ndata: 1\n\ndata: 2\n\n"
     assert r.headers["content-type"].startswith("text/event-stream")

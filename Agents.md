@@ -139,7 +139,7 @@ Tabs track `machine_host` and `port` — enough to route the kill through the co
 ## Tab Persistence Rules
 
 - **Terminal** — persistent. Stored in sessions.json. No X button. Its lifecycle is the tmux session, not a process.
-- **Everything else** (Monitor, Logs, Files, agent-spawned tabs) — ephemeral. The X button is always shown. Source of truth is the hub's service registry. On control restart, ephemeral tabs that are still running can be recovered by rescanning machine hubs.
+- **Everything else** (Files, agent-spawned tabs) — ephemeral. The X button is always shown. Source of truth is the hub's service registry. On control restart, ephemeral tabs that are still running can be recovered by rescanning machine hubs.
 - `sessions.json` stores Terminal tabs and display overrides (label, tab order). Hub service registry stores what is actually running.
 - Tabs carry an `ephemeral: true` flag when registered by remote tools/agents. This flag is used for future recovery logic.
 
@@ -207,7 +207,7 @@ cd ~/code/remote-rider
 git pull --ff-only
 ./install-service.sh                  # idempotent: installs unit, enables linger + byobu mouse-off
 systemctl --user restart remote-rider # bring the stack up now / restart it
-systemctl --user status  remote-rider # ttyd + hub + monitor + logs, one cgroup
+systemctl --user status  remote-rider # ttyd + hub, one cgroup
 journalctl --user -u remote-rider -e  # boot/start logs
 ```
 

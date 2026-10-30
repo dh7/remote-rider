@@ -39,8 +39,6 @@ fi
 HOST="${TAILSCALE_IP:-127.0.0.1}"
 
 TERM_PORT="7681"
-MONITOR_PORT="8001"
-LOGS_PORT="8002"
 HUB_PORT="7000"
 
 port_busy() {
@@ -148,7 +146,8 @@ stop_pidfile logs
 stop_pidfile fileserver
 stop_pidfile hub
 
-# Cleanup old remote-rider processes in case pid files are missing.
+# Cleanup old remote-rider processes in case pid files are missing
+# (monitor/logs/fileserver are retired: their lines only stop old instances).
 stop_matching "ttyd.*-i $HOST -p $TERM_PORT.*terminal-entry.sh"
 stop_matching "$VENV/uvicorn monitor:app --host $HOST --port"
 stop_matching "$VENV/uvicorn logs:app --host $HOST --port"
@@ -156,11 +155,9 @@ stop_matching "$VENV/uvicorn fileserver:app --host $HOST --port"
 stop_matching "$VENV/uvicorn main:app --host [^ ]* --port"
 
 TERM_PORT="$(choose_port ttyd "$TERM_PORT")"
-MONITOR_PORT="$(choose_port monitor "$MONITOR_PORT" "$TERM_PORT")"
-LOGS_PORT="$(choose_port logs "$LOGS_PORT" "$TERM_PORT" "$MONITOR_PORT")"
-HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT")"
+HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT")"
 
-export TERM_PORT MONITOR_PORT LOGS_PORT
+export TERM_PORT
 export HUB_PORT
 export BIND_HOST="$HOST"
 export PUBLIC_HOST="$HOST"
@@ -176,17 +173,8 @@ else
   echo "  ttyd      -> skipped (not installed)"
 fi
 
-"$VENV/uvicorn" monitor:app --host "$HOST" --port "$MONITOR_PORT" > "$LOG_DIR/monitor.log" 2>&1 &
-echo "$!" > "$PID_DIR/monitor.pid"
-echo "  monitor   -> http://$HOST:$MONITOR_PORT"
-
-"$VENV/uvicorn" logs:app --host "$HOST" --port "$LOGS_PORT" > "$LOG_DIR/logs.log" 2>&1 &
-echo "$!" > "$PID_DIR/logs.pid"
-echo "  logs      -> http://$HOST:$LOGS_PORT"
-
-
 # Bind the hub to 0.0.0.0 so clients hitting localhost:7000 (default rr-init) work
-# alongside the Tailscale and LAN addresses. ttyd/monitor/logs stay pinned to $HOST.
+# alongside the Tailscale and LAN addresses. ttyd stays pinned to $HOST.
 "$VENV/uvicorn" main:app --host 0.0.0.0 --port "$HUB_PORT" > "$LOG_DIR/hub.log" 2>&1 &
 echo "$!" > "$PID_DIR/hub.pid"
 echo "  api/hub   -> http://$HOST:$HUB_PORT (also http://127.0.0.1:$HUB_PORT)"

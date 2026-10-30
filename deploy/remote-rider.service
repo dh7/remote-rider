@@ -1,5 +1,5 @@
 [Unit]
-Description=Remote Rider stack (byobu terminals + hub/monitor/logs/files; control hub on the control host)
+Description=Remote Rider stack (byobu terminals + hub; control hub on the control host)
 After=network-online.target
 Wants=network-online.target
 

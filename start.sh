@@ -49,6 +49,9 @@ stop_previous_hub() {
 }
 
 stop_previous_hub
+# monitor/logs are retired: stop instances left by an older start.sh.
+stop_pidfile monitor
+stop_pidfile logs
 
 if [[ ! -x "$VENV/uvicorn" ]]; then
   echo "Missing $VENV/uvicorn. Create venv and install deps first."
@@ -75,8 +78,6 @@ BIND_HOST="${BIND_HOST:-${TAILSCALE_IP:-127.0.0.1}}"
 PUBLIC_HOST="${PUBLIC_HOST:-$BIND_HOST}"
 HUB_PORT="${HUB_PORT:-7000}"
 TERM_PORT="${TERM_PORT:-7681}"
-MONITOR_PORT="${MONITOR_PORT:-8001}"
-LOGS_PORT="${LOGS_PORT:-8002}"
 RUN_MODE="${RUN_MODE:-all}"
 
 port_busy() {
@@ -137,11 +138,9 @@ choose_port() {
 }
 
 TERM_PORT="$(choose_port ttyd "$TERM_PORT")"
-MONITOR_PORT="$(choose_port monitor "$MONITOR_PORT" "$TERM_PORT")"
-LOGS_PORT="$(choose_port logs "$LOGS_PORT" "$TERM_PORT" "$MONITOR_PORT")"
-HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT" "$MONITOR_PORT" "$LOGS_PORT")"
+HUB_PORT="$(choose_port hub "$HUB_PORT" "$TERM_PORT")"
 
-export TERM_PORT MONITOR_PORT LOGS_PORT
+export TERM_PORT
 export RUN_MODE
 
 TTYD_BIN="${TTYD_BIN:-}"
@@ -184,14 +183,6 @@ else
   : > "$LOG_DIR/ttyd.log"
   echo "  ttyd    -> skipped (ttyd not installed)"
 fi
-
-"$VENV/uvicorn" monitor:app --host "$BIND_HOST" --port "$MONITOR_PORT" > "$LOG_DIR/monitor.log" 2>&1 &
-echo "$!" > "$PID_DIR/monitor.pid"
-echo "  monitor -> http://$PUBLIC_HOST:$MONITOR_PORT"
-
-"$VENV/uvicorn" logs:app --host "$BIND_HOST" --port "$LOGS_PORT" > "$LOG_DIR/logs.log" 2>&1 &
-echo "$!" > "$PID_DIR/logs.pid"
-echo "  logs    -> http://$PUBLIC_HOST:$LOGS_PORT"
 
 "$VENV/uvicorn" main:app --host "$BIND_HOST" --port "$HUB_PORT" > "$LOG_DIR/hub.log" 2>&1 &
 echo "$!" > "$PID_DIR/hub.pid"

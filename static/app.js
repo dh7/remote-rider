@@ -504,8 +504,6 @@ async function updateAllRemotes() {
 function serviceNameForLabel(label) {
   const key = String(label || '').trim().toLowerCase();
   if (key === 'terminal') return 'terminal';
-  if (key === 'monitor') return 'monitor';
-  if (key === 'logs') return 'logs';
   if (key === 'files') return 'files';
   if (key === 'hub') return 'hub';
   return '';
@@ -700,8 +698,6 @@ function defaultTemplates() {
       label: 'Standard',
       panels: [
         { label: 'Terminal', port: 7681 },
-        { label: 'Monitor', port: 8001 },
-        { label: 'Logs', port: 8002 },
       ],
     },
   ];

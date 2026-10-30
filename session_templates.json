@@ -3,17 +3,7 @@
     "id": "standard",
     "label": "Standard",
     "panels": [
-      { "label": "Terminal", "port": 7681 },
-      { "label": "Monitor", "port": 8001 },
-      { "label": "Logs", "port": 8002 }
-    ]
-  },
-  {
-    "id": "ops",
-    "label": "Ops (no terminal)",
-    "panels": [
-      { "label": "Monitor", "port": 8001 },
-      { "label": "Logs", "port": 8002 }
+      { "label": "Terminal", "port": 7681 }
     ]
   }
 ]
