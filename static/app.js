@@ -26,6 +26,9 @@ const state = {
   sessionsVersion: null,
   pendingDeletedSessions: new Set(),
   dirtySessions: new Set(),
+  // Local edits not yet accepted by the control server. Cleared only by a
+  // successful PUT; while set, the poll retries the save instead of adopting.
+  unsavedChanges: false,
   keysMode: false,
 };
 
@@ -49,6 +52,7 @@ const panelList = document.getElementById('panel-list');
 const panelServices = document.getElementById('panel-services');
 const panelServicesNote = document.getElementById('panel-services-note');
 let saveSessionsTimer = null;
+let saveInFlight = false;
 let viewportUpdateRaf = 0;
 
 function updateViewportMetrics() {
@@ -98,6 +102,7 @@ function saveUIState() {
 }
 
 function saveProfiles() {
+  state.unsavedChanges = true;
   try {
     localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
   } catch (_) {}
@@ -174,7 +179,8 @@ async function loadSessionsFromControl() {
       version: payload.version ?? null,
     };
   } catch (_) {
-    state.controlSessionsAvailable = false;
+    // Network error (hub restarting, laptop asleep): transient. Keep polling;
+    // only an HTTP answer without a sessions API means "not a control hub".
     return null;
   }
 }
@@ -208,10 +214,20 @@ async function loadControlContext() {
 // (order included). The server is authoritative; a stale write is rejected
 // with 409, after which we rebase onto the server's current state and retry.
 async function flushSessionsToControl(retries = 2) {
-  if (!state.controlSessionsAvailable) return;
+  if (!state.controlSessionsAvailable || saveInFlight) return;
+  saveInFlight = true;
+  try {
+    await putSessionsToControl(retries);
+  } finally {
+    saveInFlight = false;
+  }
+}
+
+async function putSessionsToControl(retries) {
   try {
     const response = await fetch('/sessions', {
       method: 'PUT',
+      keepalive: true, // finish the save even if the page is reloading
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessions: state.sessions, base_version: state.sessionsVersion }),
     });
@@ -222,7 +238,7 @@ async function flushSessionsToControl(retries = 2) {
         rebaseOntoServer(body.sessions.map(normalizeProfile).filter(Boolean));
         state.sessionsVersion = body.version ?? null;
         renderSidebar();
-        return flushSessionsToControl(retries - 1);
+        return putSessionsToControl(retries - 1);
       }
       return;
     }
@@ -232,6 +248,7 @@ async function flushSessionsToControl(retries = 2) {
       state.sessionsVersion = body && body.version != null ? body.version : state.sessionsVersion;
       state.pendingDeletedSessions.clear();
       state.dirtySessions.clear();
+      state.unsavedChanges = false;
       try {
         localStorage.setItem(PROFILES_KEY, JSON.stringify(state.sessions));
       } catch (_) {}
@@ -252,7 +269,13 @@ async function refreshSessionsFromControlIfChanged() {
   if (!state.controlSessionsAvailable) return;
   // Skip the adopt while a local write is pending, so the poll can't stomp an
   // edit that hasn't been flushed yet.
-  if (saveSessionsTimer) return;
+  if (saveSessionsTimer || saveInFlight) return;
+  // A save failed (hub down, conflicts exhausted): retry it rather than adopt
+  // the server copy, which would silently drop the user's edits.
+  if (state.unsavedChanges) {
+    await flushSessionsToControl();
+    return;
+  }
   const result = await loadSessionsFromControl();
   if (!result) return;
   if (result.version != null && result.version === state.sessionsVersion) return;
@@ -2191,6 +2214,13 @@ async function init() {
   window.setInterval(() => {
     refreshSessionsFromControlIfChanged();
   }, 4000);
+  // Reload/close right after an edit: send the queued save now (keepalive).
+  window.addEventListener('pagehide', () => {
+    if (!saveSessionsTimer) return;
+    clearTimeout(saveSessionsTimer);
+    saveSessionsTimer = null;
+    flushSessionsToControl();
+  });
 }
 
 init();
