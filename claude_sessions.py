@@ -24,6 +24,7 @@ PRIORITY_VALUES = ("P0", "P1", "P2")
 _PRIORITIES_LOCK = threading.Lock()
 WINDOW_ID_RE = re.compile(r"^@[0-9]+$")
 JOB_ID_RE = re.compile(r"^[0-9a-z][0-9a-z-]{0,63}$")
+UNSTARTED_JOB_NEEDS = "send a prompt to start"
 _TAIL_BYTES = 1024 * 1024
 _ENTRY_MARKERS = (b'"custom-title"', b'"ai-title"', b'"last-prompt"', b'"user"', b'"assistant"')
 
@@ -284,11 +285,13 @@ def list_sessions(
         if background:
             workspace = _workspace_for_folder(str(info.get("cwd") or ""), panes, by_tmux, workspaces)
             job_id = str(info.get("jobId") or session_id[:8])
-            # The session file can say idle while the job waits on you (e.g. a fork
-            # that needs its first prompt); the job record knows.
+            # The session file can say idle while the job waits on you; the job
+            # record knows. A fork that was never given a prompt is also "blocked"
+            # ("send a prompt to start"), but nothing is waiting there: it's idle.
             job = _job_state(claude_home, job_id)
-            if job.get("tempo") == "blocked":
-                status, waiting_for = "waiting", str(job.get("needs") or "input needed")
+            needs = str(job.get("needs") or "")
+            if job.get("tempo") == "blocked" and needs != UNSTARTED_JOB_NEEDS:
+                status, waiting_for = "waiting", needs or "input needed"
             if not summary["title"]:
                 summary["title"] = str(job.get("intent") or "")[:120]
         rows.append({

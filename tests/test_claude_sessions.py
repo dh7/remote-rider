@@ -220,15 +220,26 @@ def test_spare_processes_are_hidden(tmp_path, monkeypatch):
     assert claude_sessions.list_sessions(WORKSPACES, tmp_path) == []
 
 
-def test_blocked_background_job_needs_you(tmp_path, monkeypatch):
+def _blocked_job(tmp_path, monkeypatch, needs):
     _fake_system(monkeypatch, {1: ("1", "/dev/pts/40")})
     _write_session(tmp_path, 1, "6b5c0af4-0000-0000-0000-000000000000", 1000,
                    kind="bg", jobId="6b5c0af4", cwd="/code/img", status="idle")
     job = tmp_path / "jobs" / "6b5c0af4"
     job.mkdir(parents=True)
     (job / "state.json").write_text(json.dumps({
-        "tempo": "blocked", "needs": "send a prompt to start", "intent": "Why is all empty?",
+        "tempo": "blocked", "needs": needs, "intent": "Why is all empty?",
     }))
-    row = claude_sessions.list_sessions(WORKSPACES, tmp_path)[0]
-    assert (row["status"], row["waiting_for"], row["job_id"]) == ("waiting", "send a prompt to start", "6b5c0af4")
+    return claude_sessions.list_sessions(WORKSPACES, tmp_path)[0]
+
+
+def test_blocked_background_job_needs_you(tmp_path, monkeypatch):
+    row = _blocked_job(tmp_path, monkeypatch, "permission prompt")
+    assert (row["status"], row["waiting_for"], row["job_id"]) == ("waiting", "permission prompt", "6b5c0af4")
     assert row["title"] == "Why is all empty?"  # no transcript title yet: the job's intent
+
+
+def test_never_started_fork_is_idle_not_needs_you(tmp_path, monkeypatch):
+    # A background fork nobody has prompted yet: blocked on "send a prompt to start",
+    # but it isn't asking anything.
+    row = _blocked_job(tmp_path, monkeypatch, "send a prompt to start")
+    assert (row["status"], row["waiting_for"]) == ("idle", "")
