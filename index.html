@@ -30,6 +30,7 @@
         <button id="send-keys-btn" class="mode-switch" role="switch" aria-checked="false" title="Switch: workspaces / keys">
           <span class="switch-thumb">⌨</span>
         </button>
+        <button id="latest-btn" title="Latest Claude sessions">◷<span id="latest-badge"></span></button>
         <button id="fullscreen-btn" title="Toggle fullscreen">⛶</button>
         <button id="sidebar-collapse" title="Hide panel">⟨</button>
       </div>
@@ -138,6 +139,15 @@
             <label for="panel-session-color">Color</label>
             <input id="panel-session-color" type="color">
           </div>
+          <div class="form-row">
+            <label for="panel-session-priority">Priority</label>
+            <select id="panel-session-priority" title="Default priority for this workspace's Claude sessions">
+              <option value="">None</option>
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="section-card">
@@ -245,6 +255,38 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=7"></script>
+  <div id="latest-view">
+    <header id="latest-top">
+      <button id="latest-back" class="secondary-btn" type="button">← Workspaces</button>
+      <h1>Sessions</h1>
+      <span id="latest-meta" class="muted-note"></span>
+    </header>
+    <div id="latest-controls">
+      <div class="latest-ctl" id="latest-sort" role="group" aria-label="Sort">
+        <span class="latest-ctl-label">Sort</span>
+        <button type="button" data-sort="triage" title="Needs you, done, idle, then working; priority inside each">Triage</button>
+        <button type="button" data-sort="priority" title="P0 first, whatever the state">Priority</button>
+        <button type="button" data-sort="recent">Recent</button>
+        <button type="button" data-sort="project">Project</button>
+      </div>
+      <div class="latest-ctl" id="latest-states" role="group" aria-label="Show states">
+        <span class="latest-ctl-label">Show</span>
+        <button type="button" data-state="needs">Needs you</button>
+        <button type="button" data-state="done">Done</button>
+        <button type="button" data-state="idle">Idle</button>
+        <button type="button" data-state="working">Working</button>
+      </div>
+      <div class="latest-ctl" id="latest-prio" role="group" aria-label="Priority filter">
+        <span class="latest-ctl-label">Priority</span>
+        <button type="button" data-prio="all">All</button>
+        <button type="button" data-prio="0">P0</button>
+        <button type="button" data-prio="1">P0–P1</button>
+      </div>
+    </div>
+    <p id="latest-error">Can't reach the hub. Retrying.</p>
+    <ol id="latest-list"></ol>
+  </div>
+
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>

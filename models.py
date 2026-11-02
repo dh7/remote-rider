@@ -32,6 +32,16 @@ class TmuxKillRequest(BaseModel):
     port: int = Field(default=7000, ge=1, le=65535)
 
 
+class ClaudePriorityRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    priority: Literal["P0", "P1", "P2"] | None = None
+
+
+class TmuxSelectWindowRequest(BaseModel):
+    session: str = Field(min_length=1, max_length=120)
+    window: str = Field(min_length=2, max_length=20)
+
+
 class TmuxSendKeysRequest(BaseModel):
     host: str
     session: str = Field(min_length=1, max_length=120)

@@ -8,6 +8,7 @@ __pycache__/
 *.pyc
 logs/
 service_registry.json
+claude_priorities.json
 .agents/
 .claude/
 .codex/

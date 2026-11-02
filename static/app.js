@@ -559,6 +559,7 @@ function normalizeProfile(raw) {
     name: String(raw.name),
     display: raw.display ? String(raw.display) : undefined,
     color: raw.color ? String(raw.color) : undefined,
+    priority: ['P0', 'P1', 'P2'].includes(raw.priority) ? raw.priority : undefined,
     machine: {
       name: machineName,
       host,
@@ -1038,6 +1039,391 @@ async function reloadSessions(preferredName) {
   await selectSession(target);
 }
 
+// Show a workspace's Terminal tab, switched to the given tmux window (an id like @12).
+async function focusWorkspace(name, tmuxWindow) {
+  const server = state.sessions.find((s) => s.name === name);
+  if (!server) return false;
+  const terminal = (server.tabs || server.panels || []).find((t) => t.service === 'terminal');
+  if (terminal) state.activeTabBySession[name] = terminal.id || terminal.label;
+  if (tmuxWindow) {
+    const session = new URLSearchParams(terminal?.path?.split('?')[1] || '').get('arg') || name;
+    await fetch('/tmux/select-window', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session, window: tmuxWindow }),
+    }).catch(() => {});
+  }
+  await selectSession(server);
+  return true;
+}
+
+// /?session=<name>&window=<id> lands on that terminal window; /?view=latest (what
+// /recent redirects to) opens the sessions view. Session params are dropped so a
+// reload doesn't switch windows again.
+async function applyDeepLink() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('view') === 'latest') {
+    window.history.replaceState({ rrView: 'latest-entry' }, '', '/?view=latest');
+    showLatest();
+    return false;
+  }
+  if (!params.has('session')) return false;
+  window.history.replaceState(null, '', window.location.pathname);
+  return focusWorkspace(params.get('session'), params.get('window'));
+}
+
+// ── Latest Claude sessions ────────────────────────────────────────────────────
+let latestTimer = null;
+let latestRows = [];
+let latestPriorities = {};  // Claude session id -> P0..P2
+let latestHost = '';
+
+// "Done" = went idle after you last saw it. Seen = clicked here, or its tmux window
+// is the one showing on an attached screen. Stored per browser, by Claude session id.
+const SEEN_KEY = 'rr_claude_seen';
+const latestSeen = (() => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SEEN_KEY) || 'null');
+    if (parsed && typeof parsed.since === 'number' && parsed.at) return parsed;
+  } catch (_) {}
+  // First use: only turns finished in the last 30 minutes count as unseen.
+  return { since: Date.now() - 30 * 60 * 1000, at: {} };
+})();
+
+const VIEW_KEY = 'rr_latest_view';
+const STATE_KEYS = ['needs', 'done', 'idle', 'working'];
+const latestPrefs = (() => {
+  const prefs = { sort: 'triage', states: [...STATE_KEYS], prio: 'all' };
+  try {
+    const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null') || {};
+    if (['triage', 'priority', 'recent', 'project'].includes(saved.sort)) prefs.sort = saved.sort;
+    if (Array.isArray(saved.states)) prefs.states = saved.states.filter((k) => STATE_KEYS.includes(k));
+    if (['all', '0', '1'].includes(saved.prio)) prefs.prio = saved.prio;
+  } catch (_) {}
+  return prefs;
+})();
+
+function saveLatestPrefs() {
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify(latestPrefs)); } catch (_) {}
+}
+
+function markSeen(sessionId) {
+  latestSeen.at[sessionId] = Date.now();
+}
+
+function saveSeen(rows) {
+  const live = new Set(rows.map((row) => row.session_id));
+  Object.keys(latestSeen.at).forEach((id) => { if (!live.has(id)) delete latestSeen.at[id]; });
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(latestSeen)); } catch (_) {}
+}
+
+const WAITING_LABELS = { 'permission prompt': 'permission', 'input needed': 'question' };
+
+function latestState(row) {
+  if (row.status === 'waiting') {
+    return { key: 'needs', label: 'needs you', title: row.waiting_for || 'waiting for you',
+      detail: WAITING_LABELS[row.waiting_for] || row.waiting_for };
+  }
+  if (row.status === 'busy') return { key: 'working', label: 'working' };
+  if (row.status === 'idle' && row.status_since > (latestSeen.at[row.session_id] ?? latestSeen.since)) {
+    return { key: 'done', label: 'done', title: 'finished since you last looked' };
+  }
+  return null;
+}
+
+function stateKey(row) {
+  return latestState(row)?.key || 'idle';
+}
+
+const STATE_RANK = { needs: 0, done: 1, idle: 2, working: 3 };
+const PRIO_RANK = { P0: 0, P1: 1, P2: 2 };
+
+// Set in the workspace's settings (⚙). Read live so an edit there shows at once.
+function projectPriority(row) {
+  const workspace = row.workspace && state.sessions.find((s) => s.name === row.workspace);
+  return workspace ? workspace.priority : row.workspace_priority || undefined;
+}
+
+// A session's own priority wins; otherwise it inherits its workspace's.
+function effectivePriority(row) {
+  return latestPriorities[row.session_id] || projectPriority(row);
+}
+
+function prioRank(priority) {
+  return PRIO_RANK[priority] ?? 3;
+}
+
+function compareBy(...keys) {
+  return (a, b) => {
+    for (const key of keys) {
+      const x = key(a);
+      const y = key(b);
+      if (x < y) return -1;
+      if (x > y) return 1;
+    }
+    return 0;
+  };
+}
+
+function sortLatest(rows) {
+  const state = (row) => STATE_RANK[stateKey(row)];
+  const prio = (row) => prioRank(effectivePriority(row));
+  const newest = (row) => -row.last_active;
+  const project = (row) => (row.workspace ? row.workspace_display.toLowerCase() : '￿');
+  const projectPrio = (row) => prioRank(projectPriority(row));
+  const orders = {
+    triage: [state, prio, newest],
+    priority: [prio, state, newest],
+    recent: [newest],
+    project: [projectPrio, project, state, prio, newest],
+  };
+  return [...rows].sort(compareBy(...orders[latestPrefs.sort]));
+}
+
+function filterLatest(rows) {
+  const states = new Set(latestPrefs.states);
+  const maxRank = latestPrefs.prio === 'all' ? 3 : Number(latestPrefs.prio);
+  return rows.filter((row) => states.has(stateKey(row)) && prioRank(effectivePriority(row)) <= maxRank);
+}
+
+function timeAgo(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function latestEl(tag, className, text) {
+  const node = document.createElement(tag);
+  node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+function workspaceColor(name) {
+  const workspace = name && state.sessions.find((s) => s.name === name);
+  return workspace ? colorForSession(workspace) : '';
+}
+
+async function saveSessionPriority(sessionId, priority) {
+  if (priority) latestPriorities[sessionId] = priority;
+  else delete latestPriorities[sessionId];
+  renderLatest();
+  try {
+    const response = await fetch('/claude/priorities', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, priority: priority || null }),
+    });
+    if (response.ok) latestPriorities = (await response.json()).priorities;
+  } catch (_) {}
+  renderLatest();
+}
+
+// <select> for P0/P1/P2. `inherited` is what an empty value falls back to.
+function prioritySelect(value, inherited, onChange) {
+  const select = latestEl('select', 'prio-select');
+  const shown = value || inherited;
+  if (shown) select.classList.add(shown.toLowerCase());
+  if (!value && inherited) select.classList.add('inherited');
+  const blank = inherited ? `${inherited} (workspace)` : '–';
+  [['', blank], ['P0', 'P0'], ['P1', 'P1'], ['P2', 'P2']].forEach(([v, label]) => {
+    const option = document.createElement('option');
+    option.value = v;
+    option.textContent = label;
+    option.selected = v === (value || '');
+    select.append(option);
+  });
+  select.onchange = () => onChange(select.value || null);
+  return select;
+}
+
+function buildLatestRow(row) {
+  const linked = row.workspace && state.sessions.some((s) => s.name === row.workspace);
+  const node = latestEl('div', 'latest-row');
+  const color = workspaceColor(row.workspace);
+  if (color) node.style.setProperty('--session-color', color);
+  if (!linked) node.classList.add('unlinked');
+
+  const main = latestEl(linked ? 'button' : 'div', 'row-main');
+  if (linked) {
+    main.type = 'button';
+    main.onclick = async () => {
+      markSeen(row.session_id);
+      saveSeen(latestRows);
+      closeLatest();
+      await focusWorkspace(row.workspace, row.tmux_window);
+    };
+  }
+
+  const when = latestEl('span', 'when');
+  when.append(latestEl('span', 'ago', timeAgo(row.last_active)));
+  when.title = new Date(row.last_active).toLocaleString();
+  const rowState = latestState(row);
+  if (rowState) {
+    node.classList.add(`state-${rowState.key}`);
+    const badge = latestEl('span', `state state-${rowState.key}`, rowState.label);
+    if (rowState.title) badge.title = rowState.title;
+    when.append(badge);
+    if (rowState.detail) when.append(latestEl('span', 'state-detail', rowState.detail));
+  }
+  main.append(when, latestEl('span', 'title', row.title || row.name || row.session_id));
+
+  const folder = row.cwd.split('/').filter(Boolean).pop() || row.cwd;
+  const where = row.workspace
+    ? `${row.workspace_display} › ${row.tmux_window_name} · ${folder}`
+    : `${folder} · ${row.tmux_session ? `tmux ${row.tmux_session}, no workspace` : 'not in tmux'}`;
+  main.append(latestEl('span', 'where', where));
+  if (row.last_prompt) main.append(latestEl('span', 'prompt', `› ${row.last_prompt}`));
+
+  const prio = latestEl('div', 'row-prio');
+  const select = prioritySelect(latestPriorities[row.session_id], projectPriority(row),
+    (value) => saveSessionPriority(row.session_id, value));
+  select.title = 'Session priority';
+  prio.append(select);
+  node.append(main, prio);
+  return node;
+}
+
+function renderLatestControls() {
+  document.querySelectorAll('#latest-sort button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sort === latestPrefs.sort)));
+  document.querySelectorAll('#latest-states button').forEach((b) => b.setAttribute('aria-pressed', String(latestPrefs.states.includes(b.dataset.state))));
+  document.querySelectorAll('#latest-prio button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.prio === latestPrefs.prio)));
+}
+
+function renderLatest() {
+  const view = document.getElementById('latest-view');
+  if (!view.classList.contains('open')) return;
+  // A rebuild would close a priority menu the user has open.
+  if (view.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
+  renderLatestControls();
+
+  const rows = filterLatest(sortLatest(latestRows));
+  const items = [];
+  let group = null;
+  rows.forEach((row) => {
+    if (latestPrefs.sort === 'project' && row.workspace !== group) {
+      group = row.workspace;
+      const head = latestEl('li', 'latest-group', row.workspace ? row.workspace_display : 'No workspace');
+      const color = workspaceColor(row.workspace);
+      if (color) head.style.setProperty('--session-color', color);
+      items.push(head);
+    }
+    const item = document.createElement('li');
+    item.append(buildLatestRow(row));
+    items.push(item);
+  });
+  if (!items.length && latestRows.length) items.push(latestEl('li', 'latest-empty', 'No session matches these filters.'));
+  document.getElementById('latest-list').replaceChildren(...items);
+
+  const counts = latestCounts();
+  const parts = [];
+  if (counts.needs) parts.push(`${counts.needs} need you`);
+  if (counts.working) parts.push(`${counts.working} working`);
+  if (counts.done) parts.push(`${counts.done} done`);
+  const shown = rows.length === latestRows.length ? `${latestRows.length}` : `${rows.length} of ${latestRows.length}`;
+  document.getElementById('latest-meta').textContent = [...parts, `${shown} running on ${latestHost}`].join(' · ');
+}
+
+function latestCounts() {
+  const counts = { needs: 0, working: 0, done: 0, idle: 0 };
+  latestRows.forEach((row) => { counts[stateKey(row)] += 1; });
+  return counts;
+}
+
+function updateLatestBadge() {
+  const counts = latestCounts();
+  const btn = document.getElementById('latest-btn');
+  btn.classList.toggle('has-needs', counts.needs > 0);
+  btn.classList.toggle('has-done', counts.needs === 0 && counts.done > 0);
+  document.getElementById('latest-badge').textContent = counts.needs > 0 ? String(counts.needs) : '';
+  const parts = [];
+  if (counts.needs) parts.push(`${counts.needs} need you`);
+  if (counts.working) parts.push(`${counts.working} working`);
+  if (counts.done) parts.push(`${counts.done} done`);
+  btn.title = `Claude sessions${parts.length ? ` — ${parts.join(', ')}` : ''}`;
+}
+
+// Polls even while the view is closed, so the ◷ button can say when a session needs you.
+async function refreshLatest() {
+  const errorEl = document.getElementById('latest-error');
+  try {
+    const response = await fetch('/claude/sessions');
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    latestRows = data.sessions;
+    latestPriorities = data.priorities || latestPriorities;
+    latestHost = data.host;
+    latestRows.forEach((row) => { if (row.on_screen) markSeen(row.session_id); });
+    saveSeen(latestRows);
+    updateLatestBadge();
+    renderLatest();
+    errorEl.style.display = 'none';
+  } catch (_) {
+    errorEl.style.display = 'block';
+  }
+}
+
+function startLatestPolling() {
+  if (latestTimer !== null) return;
+  refreshLatest();
+  latestTimer = window.setInterval(refreshLatest, 5000);
+}
+
+function showLatest() {
+  document.getElementById('latest-view').classList.add('open');
+  renderLatest();
+  refreshLatest();
+}
+
+function hideLatest() {
+  document.getElementById('latest-view').classList.remove('open');
+}
+
+// The view is a history entry, so the browser's back button closes it.
+function openLatest() {
+  if (document.getElementById('latest-view').classList.contains('open')) return;
+  window.history.pushState({ rrView: 'latest' }, '', '/?view=latest');
+  showLatest();
+}
+
+function closeLatest() {
+  if (!document.getElementById('latest-view').classList.contains('open')) return;
+  if (window.history.state?.rrView === 'latest') {
+    window.history.back();  // popstate hides the view
+  } else {
+    window.history.pushState(null, '', '/');
+    hideLatest();
+  }
+}
+
+function bindLatestView() {
+  document.getElementById('latest-btn').onclick = openLatest;
+  document.getElementById('latest-back').onclick = closeLatest;
+  window.addEventListener('popstate', () => {
+    if (new URLSearchParams(window.location.search).get('view') === 'latest') showLatest();
+    else hideLatest();
+  });
+  document.querySelectorAll('#latest-sort button').forEach((b) => {
+    b.onclick = () => { latestPrefs.sort = b.dataset.sort; saveLatestPrefs(); renderLatest(); };
+  });
+  document.querySelectorAll('#latest-states button').forEach((b) => {
+    b.onclick = () => {
+      const on = new Set(latestPrefs.states);
+      if (on.has(b.dataset.state)) on.delete(b.dataset.state);
+      else on.add(b.dataset.state);
+      latestPrefs.states = STATE_KEYS.filter((k) => on.has(k));
+      saveLatestPrefs();
+      renderLatest();
+    };
+  });
+  document.querySelectorAll('#latest-prio button').forEach((b) => {
+    b.onclick = () => { latestPrefs.prio = b.dataset.prio; saveLatestPrefs(); renderLatest(); };
+  });
+  startLatestPolling();
+}
+
 async function deleteSession(server) {
   if (!confirm(`Delete workspace "${displayName(server)}"?`)) return;
   state.pendingDeletedSessions.add(server.name);
@@ -1246,6 +1632,7 @@ async function openPanelModal(server) {
   panelTarget.textContent = sessionMachineHost(server) || server.ip || 'unknown-host';
   document.getElementById('panel-session-label').value = state.panelEditor.label;
   document.getElementById('panel-session-color').value = state.panelEditor.color;
+  document.getElementById('panel-session-priority').value = server.priority || '';
   renderPanelEditorRows();
   renderDiscoveredServices();
   panelModal.classList.add('open');
@@ -1284,6 +1671,8 @@ function savePanelEditor() {
   const newLabel = (document.getElementById('panel-session-label').value || '').trim();
   server.display = newLabel || server.name;
   server.color = state.panelEditor.color;
+  // null, not undefined: the hub keeps a stored priority when the field is missing.
+  server.priority = document.getElementById('panel-session-priority').value || null;
   server.tabs = normalizePanels(state.panelEditor.panels);
   server.panels = server.tabs;
   state.dirtySessions.add(server.name);
@@ -2087,6 +2476,7 @@ async function init() {
     if (e.target === document.getElementById('update-modal')) closeUpdateModal();
   });
   document.getElementById('send-keys-btn').onclick = toggleKeysMode;
+  bindLatestView();
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('sidebar-collapse').onclick = () => setSidebarCollapsed(true);
   document.getElementById('sidebar-reveal').onclick = () => setSidebarCollapsed(false);
@@ -2205,12 +2595,13 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && addModal.classList.contains('open')) closeAddModal();
     if (e.key === 'Escape' && panelModal.classList.contains('open')) closePanelModal();
+    if (e.key === 'Escape' && document.getElementById('latest-view').classList.contains('open')) closeLatest();
     if (e.key === 'Escape' && document.getElementById('update-modal').classList.contains('open')) closeUpdateModal();
     if (e.key === 'Escape' && state.keysMode) setKeysMode(false);
     if (e.key === 'Escape' && document.getElementById('sandbox-modal').classList.contains('open')) closeSandboxModal();
   });
 
-  await reloadSessions(state.activeSession);
+  if (!(await applyDeepLink())) await reloadSessions(state.activeSession);
   window.setInterval(() => {
     refreshSessionsFromControlIfChanged();
   }, 4000);

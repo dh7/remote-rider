@@ -7,9 +7,13 @@ from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from claude_sessions import list_sessions as _list_claude_sessions
+from claude_sessions import load_priorities as _load_claude_priorities
+from claude_sessions import select_window as _select_tmux_window
+from claude_sessions import set_priority as _set_claude_priority
 from forwarded import ForwardedMiddleware, via_gateway
 
 from config import (
@@ -50,6 +54,8 @@ from models import (
     SessionTabUpsertRequest,
     TabRequest,
     TmuxKillRequest,
+    ClaudePriorityRequest,
+    TmuxSelectWindowRequest,
     TmuxSendKeysRequest,
     UpdateAllRemotesRequest,
 )
@@ -64,6 +70,7 @@ from storage import (
     _clone_panels,
     _extract_terminal_session,
     _load_machine_inventory,
+    _carry_over_priorities,
     _load_normalized_control_sessions,
     _load_templates,
     _normalize_control_session,
@@ -308,6 +315,32 @@ def index() -> str:
     return (HERE / "index.html").read_text()
 
 
+@app.get("/recent")
+def recent_page() -> RedirectResponse:
+    # Relative, so it stays under whatever origin served it (tailnet or gateway).
+    return RedirectResponse("/?view=latest")
+
+
+@app.get("/claude/sessions")
+def claude_sessions() -> dict[str, Any]:
+    _require_control_api()
+    _require_runtime_api()
+    with SESSIONS_LOCK:
+        workspaces = _load_normalized_control_sessions()
+    local = [w for w in workspaces if _is_local_host((w.get("machine") or {}).get("host") or "")]
+    return {
+        "sessions": _list_claude_sessions(local),
+        "priorities": _load_claude_priorities(),
+        "host": socket.gethostname(),
+    }
+
+
+@app.post("/claude/priorities")
+def claude_priorities(payload: ClaudePriorityRequest) -> dict[str, Any]:
+    _require_control_api()
+    return {"priorities": _set_claude_priority(payload.session_id, payload.priority)}
+
+
 @app.get("/api/info")
 def api_info() -> dict[str, Any]:
     mode = _run_mode()
@@ -365,11 +398,11 @@ def replace_sessions(payload: SessionsPutRequest):
     _require_control_api()
     normalized = [s for s in (_normalize_control_session(row) for row in payload.sessions) if s]
     with SESSIONS_LOCK:
+        current = _load_normalized_control_sessions()
         # Optimistic concurrency: reject a write based on a stale view so a
         # browser reorder can't clobber a tab an agent just added. The client
         # rebases onto the returned current state and retries.
         if payload.base_version is not None:
-            current = _load_normalized_control_sessions()
             current_version = _sessions_version(current)
             if payload.base_version != current_version:
                 return JSONResponse(
@@ -380,6 +413,7 @@ def replace_sessions(payload: SessionsPutRequest):
                         "version": current_version,
                     },
                 )
+        _carry_over_priorities(payload.sessions, normalized, current)
         _save_normalized_control_sessions(normalized)
     return {
         "status": "ok",
@@ -714,6 +748,12 @@ def tmux_kill(payload: TmuxKillRequest) -> dict[str, Any]:
         return {"status": "error", "reason": str(exc), "host": host, "session": session, "source": "proxy"}
 
     return {"status": "error", "reason": "invalid response", "host": host, "session": session, "source": "proxy"}
+
+
+@app.post("/tmux/select-window")
+def tmux_select_window(payload: TmuxSelectWindowRequest) -> dict[str, Any]:
+    _require_runtime_api()
+    return {"status": "selected" if _select_tmux_window(payload.session, payload.window) else "error"}
 
 
 @app.post("/tmux/send-keys")

@@ -178,7 +178,28 @@ def _normalize_control_session(payload: dict[str, Any]) -> dict[str, Any] | None
     color = str(payload.get("color", "")).strip()
     if color:
         session["color"] = color
+    if payload.get("priority") in ("P0", "P1", "P2"):
+        session["priority"] = payload["priority"]
     return session
+
+
+def _carry_over_priorities(
+    raw_rows: list[Any], normalized: list[dict[str, Any]], current: list[dict[str, Any]]
+) -> None:
+    """Keep a workspace's stored priority when a save doesn't mention it.
+
+    A browser tab loaded before priorities existed drops the field, so its next save
+    would otherwise wipe them all. Clearing takes an explicit `"priority": null`.
+    """
+    stored = {row["name"]: row["priority"] for row in current if row.get("priority")}
+    omitted = {
+        str(row.get("name", "")).strip()
+        for row in raw_rows
+        if isinstance(row, dict) and "priority" not in row
+    }
+    for session in normalized:
+        if session["name"] in omitted and session["name"] in stored:
+            session["priority"] = stored[session["name"]]
 
 
 def _load_control_sessions() -> list[dict[str, Any]]:

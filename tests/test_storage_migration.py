@@ -34,3 +34,24 @@ def test_migration_is_idempotent():
 def test_templates_have_no_fileserver():
     for t in _default_templates():
         assert all(p.get("port") != 8080 for p in t["panels"])
+
+
+def test_workspace_priority_is_kept_and_validated():
+    from storage import _normalize_control_session
+    base = {"name": "w", "machine": {"host": "1.2.3.4"}, "tabs": []}
+    assert _normalize_control_session({**base, "priority": "P0"})["priority"] == "P0"
+    assert "priority" not in _normalize_control_session({**base, "priority": "urgent"})
+    assert "priority" not in _normalize_control_session(base)
+
+
+def test_save_without_priority_field_keeps_the_stored_one():
+    from storage import _carry_over_priorities, _normalize_control_session
+    current = [{"name": "a", "priority": "P0"}, {"name": "b", "priority": "P1"}, {"name": "c", "priority": "P2"}]
+    raw = [
+        {"name": "a", "machine": {"host": "h"}},                    # old client: field missing -> kept
+        {"name": "b", "machine": {"host": "h"}, "priority": None},  # explicit clear -> cleared
+        {"name": "c", "machine": {"host": "h"}, "priority": "P0"},  # explicit change -> changed
+    ]
+    normalized = [_normalize_control_session(r) for r in raw]
+    _carry_over_priorities(raw, normalized, current)
+    assert [s.get("priority") for s in normalized] == ["P0", None, "P0"]

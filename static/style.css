@@ -650,6 +650,7 @@ body {
 #send-keys-btn.on { background: #2f6f55; border-color: #47a07a; }
 #send-keys-btn.on .switch-thumb { left: calc(100% - 1.55rem); background: #47a07a; }
 
+#latest-btn,
 #fullscreen-btn,
 #sidebar-collapse {
   height: 1.7rem;
@@ -762,7 +763,7 @@ body.sidebar-collapsed #sidebar-reveal { display: inline-flex; }
   #send-keys-btn.mode-switch { width: 4rem; height: 2.4rem; }
   #send-keys-btn .switch-thumb { width: 2.1rem; height: 2.1rem; font-size: 1.3rem; }
   #send-keys-btn.on .switch-thumb { left: calc(100% - 2.25rem); }
-  #fullscreen-btn, #sidebar-collapse { height: 2.4rem; min-width: 2.6rem; font-size: 1.5rem; }
+  #latest-btn, #fullscreen-btn, #sidebar-collapse { height: 2.4rem; min-width: 2.6rem; font-size: 1.5rem; }
   #sidebar-reveal { width: 3rem; height: 3rem; font-size: 1.6rem; }
   .key-btn { min-height: 3.4rem; font-size: 1.05rem; }
 }
@@ -842,3 +843,100 @@ body.sidebar-collapsed #sidebar-reveal { display: inline-flex; }
 .tab-btn:hover .tab-popout-btn,
 .tab-btn.active .tab-popout-btn { opacity: 0.6; }
 .tab-popout-btn:hover { opacity: 1 !important; background: rgba(80, 140, 220, 0.3); color: #aaccff; }
+
+/* Latest Claude sessions: a full-window view over the workspace UI. A row jumps to
+   that session's workspace and tmux window in place. */
+#latest-btn { position: relative; background: #1d1f26; border: 1px solid #4b5565; color: #cfd6e6; }
+#latest-badge:empty { display: none; }
+#latest-badge {
+  position: absolute; top: -0.45rem; right: -0.45rem; min-width: 1.1rem; height: 1.1rem; padding: 0 0.25rem;
+  border-radius: 0.55rem; background: #ffb020; color: #1a1300; font: bold 0.7rem/1.1rem monospace;
+}
+#latest-btn.has-needs { border-color: #ffb020; color: #ffb020; animation: latest-pulse 1.6s ease-in-out infinite; }
+#latest-btn.has-done { border-color: #7aa7ff; color: #7aa7ff; }
+@keyframes latest-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 176, 32, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(255, 176, 32, 0.35); }
+}
+
+#latest-view {
+  position: fixed;
+  top: var(--rr-viewport-offset-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--rr-viewport-height, 100dvh);
+  display: none;
+  overflow-y: auto;
+  background: #0d0d1a;
+  z-index: 25;
+  padding: 1rem max(1rem, calc((100vw - 980px) / 2)) 3rem;
+}
+#latest-view.open { display: block; }
+#latest-top { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+#latest-top h1 { font-size: 1.15rem; color: #e8ecff; }
+#latest-controls { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; margin-bottom: 0.8rem; }
+.latest-ctl { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.latest-ctl-label { color: #8a8aa8; font-size: 12px; margin-right: 0.2rem; }
+.latest-ctl button {
+  font: inherit; font-size: 12px; padding: 0.25rem 0.6rem; border-radius: 1rem; cursor: pointer;
+  background: #14142a; color: #9a9ab8; border: 1px solid #2f3352;
+}
+.latest-ctl button[aria-pressed="true"] { background: #e9ecff; color: #14142a; border-color: #e9ecff; }
+
+.prio-select {
+  font: inherit; font-size: 12px; font-weight: bold; padding: 0.15rem 0.3rem; border-radius: 4px; cursor: pointer;
+  background: #1d2033; color: #9a9ab8; border: 1px solid #3a3f5c;
+}
+.prio-select.p0 { background: #ff5a5a; color: #2a0000; border-color: #ff5a5a; }
+.prio-select.p1 { background: #ff9a3c; color: #2a1200; border-color: #ff9a3c; }
+.prio-select.p2 { background: #7d86b8; color: #0e1022; border-color: #7d86b8; }
+.prio-select.inherited { background: transparent; }
+.prio-select.inherited.p0 { color: #ff8a8a; }
+.prio-select.inherited.p1 { color: #ffb070; }
+.prio-select.inherited.p2 { color: #aab2e0; }
+
+#latest-error { display: none; color: #ff9a8a; margin-bottom: 0.8rem; }
+#latest-list { list-style: none; display: flex; flex-direction: column; gap: 0.4rem; }
+.latest-group { color: #d7defa; font-size: 13px; font-weight: bold; margin: 0.8rem 0 0.1rem; display: flex; gap: 0.5rem; align-items: center; }
+.latest-group::before { content: ''; width: 0.7rem; height: 0.7rem; border-radius: 2px; background: var(--session-color, #4a4a68); }
+.latest-empty { color: #8a8aa8; padding: 1rem 0; }
+.latest-row {
+  display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 0.6rem;
+  border: 1px solid #2a2a4a; border-radius: 6px;
+  border-left: 6px solid var(--session-color, #2a2a4a);
+  background: color-mix(in srgb, var(--session-color, transparent) 14%, #14142a);
+  color: #eee; font-size: 13px;
+}
+.latest-row:hover, .latest-row:focus-within { border-color: var(--session-color, #4a4a68); background: color-mix(in srgb, var(--session-color, transparent) 24%, #14142a); }
+.latest-row .row-main {
+  display: grid; grid-template-columns: 5.8rem 1fr; gap: 0.2rem 0.9rem; min-width: 0;
+  padding: 0.65rem 0 0.65rem 0.8rem; background: none; border: 0; color: inherit; font: inherit; text-align: left;
+}
+button.row-main { cursor: pointer; }
+button.row-main:focus-visible { outline: none; }
+.latest-row .row-prio { padding: 0.6rem 0.7rem 0 0; }
+.latest-row.unlinked { opacity: 0.65; }
+.latest-row .when { grid-row: span 3; display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; color: #bdbdd6; white-space: nowrap; }
+.latest-row .state {
+  display: inline-flex; align-items: center; gap: 0.35em; padding: 0.05rem 0.45rem;
+  border-radius: 0.6rem; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.latest-row .state-detail { font-size: 11px; color: #ffcf7a; }
+.latest-row .state.state-needs { background: #ffb020; color: #1a1300; }
+.latest-row .state.state-working { background: #e9ecff; color: #1a1d33; }
+.latest-row .state.state-working::before {
+  content: ''; width: 0.5em; height: 0.5em; border-radius: 50%; background: #1a1d33;
+  animation: latest-blink 1s ease-in-out infinite;
+}
+.latest-row .state.state-done { background: #7aa7ff; color: #0b1430; }
+.latest-row.state-needs { box-shadow: 0 0 0 1px #ffb020; }
+.latest-row .title { font-weight: 600; overflow-wrap: anywhere; }
+.latest-row .where { grid-column: 2; color: #c9cde0; font-size: 12px; overflow-wrap: anywhere; }
+.latest-row .prompt { grid-column: 2; color: #8a8aa8; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes latest-blink { 50% { opacity: 0.2; } }
+@media (max-width: 560px) {
+  #latest-view { padding: 0.75rem 0.75rem 3rem; }
+  .latest-row .row-main { grid-template-columns: 1fr; }
+  .latest-row .where, .latest-row .prompt { grid-column: 1; }
+  .latest-row .when { grid-row: auto; flex-direction: row; align-items: center; }
+}
