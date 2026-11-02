@@ -1229,6 +1229,16 @@ async function saveSessionPriority(sessionId, priority) {
   renderLatest();
 }
 
+// While a priority menu is open the list must not be rebuilt (that would close it).
+// A <select> keeps focus after a choice, so the pause ends on change/blur and is
+// capped, or one pick would freeze the live view.
+let latestPickerSince = 0;
+const PICKER_PAUSE_MS = 15000;
+
+function pickerOpen() {
+  return latestPickerSince > 0 && Date.now() - latestPickerSince < PICKER_PAUSE_MS;
+}
+
 // <select> for P0/P1/P2. `inherited` is what an empty value falls back to.
 function prioritySelect(value, inherited, onChange) {
   const select = latestEl('select', 'prio-select');
@@ -1243,7 +1253,13 @@ function prioritySelect(value, inherited, onChange) {
     option.selected = v === (value || '');
     select.append(option);
   });
-  select.onchange = () => onChange(select.value || null);
+  select.onfocus = () => { latestPickerSince = Date.now(); };
+  select.onblur = () => { latestPickerSince = 0; };
+  select.onchange = () => {
+    latestPickerSince = 0;
+    select.blur();
+    onChange(select.value || null);
+  };
   return select;
 }
 
@@ -1331,8 +1347,7 @@ function renderLatestControls() {
 function renderLatest() {
   const view = document.getElementById('latest-view');
   if (!view.classList.contains('open')) return;
-  // A rebuild would close a priority menu the user has open.
-  if (view.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
+  if (pickerOpen()) return;
   renderLatestControls();
 
   const rows = filterLatest(sortLatest(latestRows));
