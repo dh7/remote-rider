@@ -1,8 +1,10 @@
 import json
 import os
+import re
 import shutil
 import socket
 from typing import Any
+from urllib.parse import unquote as _url_unquote
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
@@ -54,6 +56,8 @@ from models import (
     SessionTabDeleteRequest,
     SessionTabUpsertRequest,
     TabRequest,
+    TmuxEnsureProxyRequest,
+    TmuxEnsureRequest,
     TmuxKillRequest,
     ClaudeAttachRequest,
     ClaudePriorityRequest,
@@ -86,6 +90,7 @@ from storage import (
 from tmux import (
     SEND_KEY_ALLOWLIST,
     TMUX_ACTIONS,
+    _ensure_tmux_session,
     _fetch_remote_agents,
     _fetch_remote_tmux_sessions,
     _kill_tmux_session,
@@ -417,6 +422,51 @@ def sessions() -> dict[str, Any]:
         }
 
 
+def _tmux_name_for_session(sess: dict) -> str | None:
+    """Pull the tmux session name out of a Terminal tab's `?arg=X` path."""
+    for tab in sess.get("tabs") or []:
+        if (tab.get("service") or "").strip() != "terminal":
+            continue
+        path = tab.get("path") or ""
+        # Expect `/?arg=<name>` possibly with extra params.
+        m = re.search(r"[?&]arg=([^&]+)", path)
+        if m:
+            return _url_unquote(m.group(1))
+    return None
+
+
+def _ensure_tmux_for_new_sessions(previous: list[dict], current: list[dict]) -> None:
+    """Fire-and-forget: for every session that's new since the previous save,
+    pre-create its tmux session via byobu-tmux on the target host. Keeps the
+    tmux server bootstrapped under byobu's profile from the start, so the
+    first ttyd connect doesn't race against a plain-tmux server coming up."""
+    prev_names = {s.get("name") for s in previous}
+    for sess in current:
+        name = sess.get("name")
+        if not name or name in prev_names:
+            continue
+        tmux_name = _tmux_name_for_session(sess) or name
+        host = (sess.get("machine") or {}).get("host") or ""
+        try:
+            if not host or _is_local_host(_normalize_host(host)):
+                _ensure_tmux_session(tmux_name, cwd=None)
+            else:
+                body = json.dumps({"session": tmux_name}).encode("utf-8")
+                req = UrlRequest(
+                    f"http://{_normalize_host(host)}:7000/tmux/ensure",
+                    data=body,
+                    headers={"content-type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    with urlopen(req, timeout=2):
+                        pass
+                except Exception:
+                    pass   # non-blocking; UI falls back to lazy terminal-entry.sh
+        except Exception:
+            pass
+
+
 @app.put("/sessions")
 def replace_sessions(payload: SessionsPutRequest):
     _require_control_api()
@@ -439,6 +489,7 @@ def replace_sessions(payload: SessionsPutRequest):
                 )
         _carry_over_priorities(payload.sessions, normalized, current)
         _save_normalized_control_sessions(normalized)
+    _ensure_tmux_for_new_sessions(current, normalized)
     return {
         "status": "ok",
         "count": len(normalized),
@@ -737,6 +788,47 @@ def servers_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535
 @app.get("/machines/proxy")
 def machines_proxy(host: str = Query(...), port: int = Query(7000, ge=1, le=65535)) -> dict[str, Any]:
     return _fetch_remote_servers(host, port)
+
+
+@app.post("/tmux/ensure")
+def tmux_ensure(payload: TmuxEnsureRequest) -> dict[str, Any]:
+    """Idempotently create a tmux session on this host via byobu-tmux
+    (fallback: bare tmux). Returns {status: "exists"|"created", backend, ...}.
+    Workspace-creation tooling should call this once per new workspace so the
+    tmux server bootstraps under byobu's profile from the start."""
+    _require_runtime_api()
+    session = payload.session.strip()
+    if not session:
+        raise HTTPException(status_code=400, detail="session is required")
+    return _ensure_tmux_session(session, payload.cwd)
+
+
+@app.post("/tmux/ensure/proxy")
+def tmux_ensure_proxy(payload: TmuxEnsureProxyRequest) -> dict[str, Any]:
+    """Create a tmux session on a remote host via its hub."""
+    host = _normalize_host(payload.host)
+    session = payload.session.strip()
+    if not session:
+        raise HTTPException(status_code=400, detail="session is required")
+    url = f"http://{host}:{payload.port}/tmux/ensure"
+    body = {"session": session}
+    if payload.cwd:
+        body["cwd"] = payload.cwd
+    req = UrlRequest(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=3) as resp:
+            remote_payload = json.loads(resp.read().decode("utf-8"))
+            if isinstance(remote_payload, dict):
+                remote_payload.setdefault("source", "proxy")
+                return remote_payload
+    except Exception as exc:
+        return {"status": "error", "reason": str(exc), "host": host, "session": session, "source": "proxy"}
+    return {"status": "error", "reason": "invalid response", "host": host, "session": session, "source": "proxy"}
 
 
 @app.post("/tmux/kill")

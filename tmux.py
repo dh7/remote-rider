@@ -19,6 +19,21 @@ from storage import _load_agent_registry, _save_agent_registry, _tab_slug
 
 # ── Tmux helpers ──────────────────────────────────────────────────────────────
 
+def _tmux_launcher() -> list[str] | None:
+    """The command prefix for starting a NEW tmux server.
+
+    byobu-tmux is preferred so the server bootstraps with byobu's profile
+    (status bar, F-key keypad). If byobu-tmux is missing, falls back to
+    bare tmux. Returns None if neither is installed. Mirrors the logic in
+    terminal-entry.sh — keep the two in sync.
+    """
+    if shutil.which("byobu-tmux"):
+        return ["byobu-tmux"]
+    if shutil.which("tmux"):
+        return ["tmux"]
+    return None
+
+
 def _tmux_session_exists(session: str) -> bool:
     if not shutil.which("tmux"):
         return False
@@ -29,6 +44,31 @@ def _tmux_session_exists(session: str) -> bool:
         check=False,
     )
     return result.returncode == 0
+
+
+def _ensure_tmux_session(session: str, cwd: str | None = None) -> dict[str, Any]:
+    """Create `session` if missing, via byobu-tmux when available.
+
+    Idempotent: returns {status: "exists"} without touching an existing
+    session, {status: "created"} after a fresh new-session, or raises
+    HTTPException on failure. `cwd` is only honored at create time —
+    existing sessions keep their original working directory.
+    """
+    launcher = _tmux_launcher()
+    if launcher is None:
+        raise HTTPException(status_code=500, detail="tmux is not installed")
+    if _tmux_session_exists(session):
+        return {"status": "exists", "session": session, "backend": launcher[0]}
+    cmd = [*launcher, "new-session", "-d", "-s", session]
+    if cwd:
+        cmd += ["-c", cwd]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=(result.stderr.strip() or "failed to create tmux session"),
+        )
+    return {"status": "created", "session": session, "backend": launcher[0]}
 
 
 def _kill_tmux_session(session: str) -> bool:
@@ -201,11 +241,12 @@ def _start_agent_local(payload: AgentStartRequest) -> dict[str, Any]:
             "started_at": int(time.time()),
         }
 
-        if shutil.which("tmux"):
+        launcher = _tmux_launcher()
+        if launcher is not None:
             escaped_command = command.replace("'", "'\"'\"'")
             shell_line = f"cd '{cwd}' && {escaped_command}"
             result = subprocess.run(
-                ["tmux", "new-session", "-d", "-s", tmux_session, shell_line],
+                [*launcher, "new-session", "-d", "-s", tmux_session, shell_line],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -213,7 +254,7 @@ def _start_agent_local(payload: AgentStartRequest) -> dict[str, Any]:
             if result.returncode != 0:
                 raise HTTPException(status_code=500, detail=result.stderr.strip() or "failed to start tmux agent")
             entry["tmux_session"] = tmux_session
-            entry["backend"] = "tmux"
+            entry["backend"] = launcher[0]
         else:
             log_handle = log_path.open("a")
             proc = subprocess.Popen(
