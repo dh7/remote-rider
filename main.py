@@ -10,6 +10,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from claude_sessions import attach_window as _attach_claude_window
 from claude_sessions import list_sessions as _list_claude_sessions
 from claude_sessions import load_priorities as _load_claude_priorities
 from claude_sessions import select_window as _select_tmux_window
@@ -54,6 +55,7 @@ from models import (
     SessionTabUpsertRequest,
     TabRequest,
     TmuxKillRequest,
+    ClaudeAttachRequest,
     ClaudePriorityRequest,
     TmuxSelectWindowRequest,
     TmuxSendKeysRequest,
@@ -321,18 +323,40 @@ def recent_page() -> RedirectResponse:
     return RedirectResponse("/?view=latest")
 
 
+def _local_workspaces() -> list[dict[str, Any]]:
+    with SESSIONS_LOCK:
+        workspaces = _load_normalized_control_sessions()
+    return [w for w in workspaces if _is_local_host((w.get("machine") or {}).get("host") or "")]
+
+
 @app.get("/claude/sessions")
 def claude_sessions() -> dict[str, Any]:
     _require_control_api()
     _require_runtime_api()
-    with SESSIONS_LOCK:
-        workspaces = _load_normalized_control_sessions()
-    local = [w for w in workspaces if _is_local_host((w.get("machine") or {}).get("host") or "")]
     return {
-        "sessions": _list_claude_sessions(local),
+        "sessions": _list_claude_sessions(_local_workspaces()),
         "priorities": _load_claude_priorities(),
         "host": socket.gethostname(),
     }
+
+
+@app.post("/claude/attach")
+def claude_attach(payload: ClaudeAttachRequest) -> dict[str, Any]:
+    """Open (or reuse) a tmux window attached to a background Claude session."""
+    _require_control_api()
+    _require_runtime_api()
+    row = next(
+        (r for r in _list_claude_sessions(_local_workspaces())
+         if r["session_id"] == payload.session_id and r["background"]),
+        None,
+    )
+    if row is None or not row["workspace_tmux"]:
+        raise HTTPException(status_code=404, detail="no background session with a workspace for that id")
+    label = "bg: " + (row["title"] or row["name"] or row["job_id"])[:24]
+    window = _attach_claude_window(row["job_id"], row["workspace_tmux"], row["cwd"], label)
+    if window is None:
+        raise HTTPException(status_code=500, detail="could not open a tmux window")
+    return {"workspace": row["workspace"], "window": window}
 
 
 @app.post("/claude/priorities")

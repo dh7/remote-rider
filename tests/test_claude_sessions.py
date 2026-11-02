@@ -12,8 +12,8 @@ WORKSPACES = [{
     ],
 }]
 PANES = {
-    "/dev/pts/1": {"session": "img-tmux", "window": "@7", "window_name": "vote", "on_screen": True},
-    "/dev/pts/2": {"session": "stray-tmux", "window": "@8", "window_name": "bash", "on_screen": False},
+    "/dev/pts/1": {"session": "img-tmux", "window": "@7", "window_name": "vote", "on_screen": True, "path": "/code/img"},
+    "/dev/pts/2": {"session": "stray-tmux", "window": "@8", "window_name": "bash", "on_screen": False, "path": "/code/x"},
 }
 
 
@@ -78,13 +78,15 @@ def test_waiting_state_is_passed_through(tmp_path, monkeypatch):
     assert row["on_screen"] is True
 
 
-def test_tmux_panes_parses_window_names_with_pipes(monkeypatch):
-    line = "/dev/pts/4|1|1|img|@7|a|b\n/dev/pts/5|0|1|other|@9|x\n"
+def test_tmux_panes_parses_window_names_with_separators(monkeypatch):
+    line = "/dev/pts/4\t1\t1\timg\t@7\t/code/img\ta|b\tc\n/dev/pts/5\t0\t1\tother\t@9\t/tmp\tx\n"
     monkeypatch.setattr(claude_sessions.shutil, "which", lambda _: "/usr/bin/tmux")
     monkeypatch.setattr(claude_sessions.subprocess, "run",
                         lambda *a, **k: type("R", (), {"stdout": line})())
     panes = claude_sessions._tmux_panes()
-    assert panes["/dev/pts/4"] == {"on_screen": True, "session": "img", "window": "@7", "window_name": "a|b"}
+    assert panes["/dev/pts/4"] == {
+        "on_screen": True, "session": "img", "window": "@7", "path": "/code/img", "window_name": "a|b\tc",
+    }
     assert panes["/dev/pts/5"]["on_screen"] is False  # nobody attached
 
 
@@ -149,3 +151,84 @@ def test_workspace_priority_comes_from_the_workspace(tmp_path, monkeypatch):
     _write_session(tmp_path, 1, "s", 1000)
     workspaces = [{**WORKSPACES[0], "priority": "P1"}]
     assert claude_sessions.list_sessions(workspaces, tmp_path)[0]["workspace_priority"] == "P1"
+
+
+def test_background_session_maps_to_the_workspace_working_in_its_folder(tmp_path, monkeypatch):
+    _fake_system(monkeypatch, {1: ("1", "/dev/pts/40")})  # its pty is not a tmux pane
+    _write_session(tmp_path, 1, "bg", 1000, kind="bg", cwd="/code/img")
+    row = claude_sessions.list_sessions(WORKSPACES, tmp_path)[0]
+    assert row["background"] is True
+    assert (row["workspace"], row["workspace_tmux"], row["tmux_window"]) == ("imgbench", "img-tmux", None)
+
+
+def test_background_session_falls_back_to_the_workspace_project_folder(tmp_path, monkeypatch):
+    _fake_system(monkeypatch, {1: ("1", "/dev/pts/40")})
+    _write_session(tmp_path, 1, "bg", 1000, kind="bg", cwd="/code/proj/sub")
+    workspaces = [{**WORKSPACES[0], "project": "/code/proj"}]
+    assert claude_sessions.list_sessions(workspaces, tmp_path)[0]["workspace"] == "imgbench"
+    _write_session(tmp_path, 1, "bg", 1000, kind="bg", cwd="/elsewhere")
+    assert claude_sessions.list_sessions(workspaces, tmp_path)[0]["workspace"] is None
+
+
+def test_terminal_session_outside_tmux_is_not_treated_as_background(tmp_path, monkeypatch):
+    _fake_system(monkeypatch, {1: ("1", "/dev/pts/40")})
+    _write_session(tmp_path, 1, "s", 1000, kind="interactive", cwd="/code/img")
+    row = claude_sessions.list_sessions(WORKSPACES, tmp_path)[0]
+    assert row["background"] is False and row["workspace"] is None
+
+
+class _Run:
+    def __init__(self, outputs):
+        self.outputs, self.calls = outputs, []
+
+    def __call__(self, args, **_):
+        self.calls.append(args)
+        stdout = self.outputs.pop(0)
+        return type("R", (), {"stdout": stdout, "returncode": 0})()
+
+
+JOB = "09e690d8"
+
+
+def test_attach_reuses_an_existing_attach_window(monkeypatch):
+    run = _Run([f"@3\tbash\n@9\t/bin/claude attach {JOB}; exec bash\n"])
+    monkeypatch.setattr(claude_sessions.shutil, "which", lambda _: "/usr/bin/tmux")
+    monkeypatch.setattr(claude_sessions.subprocess, "run", run)
+    assert claude_sessions.attach_window(JOB, "lab", "/tmp", "bg: x") == "@9"
+    assert len(run.calls) == 1  # no new window
+
+
+def test_attach_opens_a_background_window_otherwise(monkeypatch):
+    run = _Run(["@3\tbash\n", "@12\n"])
+    monkeypatch.setattr(claude_sessions.shutil, "which", lambda _: "/usr/bin/tmux")
+    monkeypatch.setattr(claude_sessions.subprocess, "run", run)
+    assert claude_sessions.attach_window(JOB, "lab", "/tmp", "bg: x") == "@12"
+    new_window = run.calls[1]
+    assert new_window[:3] == ["tmux", "new-window", "-d"]  # never steals the screen
+    assert new_window[new_window.index("-t") + 1] == "=lab:"
+    assert f"attach {JOB}; exec" in new_window[-1]
+
+
+def test_attach_rejects_bad_job_ids(monkeypatch):
+    monkeypatch.setattr(claude_sessions.subprocess, "run", lambda *a, **k: 1 / 0)
+    assert claude_sessions.attach_window("x; rm -rf ~", "lab", "/tmp", "bg") is None
+
+
+def test_spare_processes_are_hidden(tmp_path, monkeypatch):
+    _fake_system(monkeypatch, {1: ("1", "/dev/pts/40")})
+    _write_session(tmp_path, 1, "spare", 1000, kind="bg", spare=True, cwd="/code/img")
+    assert claude_sessions.list_sessions(WORKSPACES, tmp_path) == []
+
+
+def test_blocked_background_job_needs_you(tmp_path, monkeypatch):
+    _fake_system(monkeypatch, {1: ("1", "/dev/pts/40")})
+    _write_session(tmp_path, 1, "6b5c0af4-0000-0000-0000-000000000000", 1000,
+                   kind="bg", jobId="6b5c0af4", cwd="/code/img", status="idle")
+    job = tmp_path / "jobs" / "6b5c0af4"
+    job.mkdir(parents=True)
+    (job / "state.json").write_text(json.dumps({
+        "tempo": "blocked", "needs": "send a prompt to start", "intent": "Why is all empty?",
+    }))
+    row = claude_sessions.list_sessions(WORKSPACES, tmp_path)[0]
+    assert (row["status"], row["waiting_for"], row["job_id"]) == ("waiting", "send a prompt to start", "6b5c0af4")
+    assert row["title"] == "Why is all empty?"  # no transcript title yet: the job's intent

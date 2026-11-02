@@ -1135,7 +1135,8 @@ function stateKey(row) {
   return latestState(row)?.key || 'idle';
 }
 
-const STATE_RANK = { needs: 0, done: 1, idle: 2, working: 3 };
+// Triage order. Working first (hide them with the Working chip), then what needs you.
+const STATE_RANK = { working: 0, needs: 1, done: 2, idle: 3 };
 const PRIO_RANK = { P0: 0, P1: 1, P2: 2 };
 
 // Set in the workspace's settings (⚙). Read live so an edit there shows at once.
@@ -1147,6 +1148,12 @@ function projectPriority(row) {
 // A session's own priority wins; otherwise it inherits its workspace's.
 function effectivePriority(row) {
   return latestPriorities[row.session_id] || projectPriority(row);
+}
+
+// Rows with somewhere to go: a tmux window, or a background session we can attach.
+function canOpen(row) {
+  return Boolean(row.workspace && state.sessions.some((s) => s.name === row.workspace)
+    && (row.tmux_window || row.background));
 }
 
 function prioRank(priority) {
@@ -1169,13 +1176,14 @@ function sortLatest(rows) {
   const state = (row) => STATE_RANK[stateKey(row)];
   const prio = (row) => prioRank(effectivePriority(row));
   const newest = (row) => -row.last_active;
+  const openable = (row) => (canOpen(row) ? 0 : 1);  // dead ends always sink to the bottom
   const project = (row) => (row.workspace ? row.workspace_display.toLowerCase() : '￿');
   const projectPrio = (row) => prioRank(projectPriority(row));
   const orders = {
-    triage: [state, prio, newest],
-    priority: [prio, state, newest],
-    recent: [newest],
-    project: [projectPrio, project, state, prio, newest],
+    triage: [openable, state, prio, newest],
+    priority: [openable, prio, state, newest],
+    recent: [openable, newest],
+    project: [openable, projectPrio, project, state, prio, newest],
   };
   return [...rows].sort(compareBy(...orders[latestPrefs.sort]));
 }
@@ -1239,8 +1247,29 @@ function prioritySelect(value, inherited, onChange) {
   return select;
 }
 
+// A background session has no window yet: the hub opens (or reuses) one running
+// `claude attach <id>` in its workspace's tmux session, then we jump there.
+async function openLatestRow(row) {
+  let tmuxWindow = row.tmux_window;
+  if (row.background) {
+    try {
+      const response = await fetch('/claude/attach', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ session_id: row.session_id }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      tmuxWindow = (await response.json()).window;
+    } catch (_) {
+      alert(`Couldn't open background session "${row.title || row.session_id}" in a terminal.`);
+      return;
+    }
+  }
+  await focusWorkspace(row.workspace, tmuxWindow);
+}
+
 function buildLatestRow(row) {
-  const linked = row.workspace && state.sessions.some((s) => s.name === row.workspace);
+  const linked = canOpen(row);
   const node = latestEl('div', 'latest-row');
   const color = workspaceColor(row.workspace);
   if (color) node.style.setProperty('--session-color', color);
@@ -1253,7 +1282,7 @@ function buildLatestRow(row) {
       markSeen(row.session_id);
       saveSeen(latestRows);
       closeLatest();
-      await focusWorkspace(row.workspace, row.tmux_window);
+      await openLatestRow(row);
     };
   }
 
@@ -1271,9 +1300,16 @@ function buildLatestRow(row) {
   main.append(when, latestEl('span', 'title', row.title || row.name || row.session_id));
 
   const folder = row.cwd.split('/').filter(Boolean).pop() || row.cwd;
-  const where = row.workspace
-    ? `${row.workspace_display} › ${row.tmux_window_name} · ${folder}`
-    : `${folder} · ${row.tmux_session ? `tmux ${row.tmux_session}, no workspace` : 'not in tmux'}`;
+  let where;
+  if (row.background) {
+    where = row.workspace
+      ? `background · ${folder} · opens in ${row.workspace_display}`
+      : `background · ${folder} · no workspace for this folder, use: claude attach ${row.job_id}`;
+  } else if (row.workspace) {
+    where = `${row.workspace_display} › ${row.tmux_window_name} · ${folder}`;
+  } else {
+    where = `${folder} · ${row.tmux_session ? `tmux ${row.tmux_session}, no workspace` : 'not in tmux, nothing to open'}`;
+  }
   main.append(latestEl('span', 'where', where));
   if (row.last_prompt) main.append(latestEl('span', 'prompt', `› ${row.last_prompt}`));
 
@@ -1326,9 +1362,10 @@ function renderLatest() {
   document.getElementById('latest-meta').textContent = [...parts, `${shown} running on ${latestHost}`].join(' · ');
 }
 
+// Only rows you can open count toward the ◷ badge and the header summary.
 function latestCounts() {
   const counts = { needs: 0, working: 0, done: 0, idle: 0 };
-  latestRows.forEach((row) => { counts[stateKey(row)] += 1; });
+  latestRows.forEach((row) => { if (canOpen(row)) counts[stateKey(row)] += 1; });
   return counts;
 }
 

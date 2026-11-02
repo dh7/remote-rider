@@ -32,6 +32,10 @@ class TmuxKillRequest(BaseModel):
     port: int = Field(default=7000, ge=1, le=65535)
 
 
+class ClaudeAttachRequest(BaseModel):
+    session_id: str = Field(min_length=36, max_length=36)
+
+
 class ClaudePriorityRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=200)
     priority: Literal["P0", "P1", "P2"] | None = None

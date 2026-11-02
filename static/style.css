@@ -915,7 +915,8 @@ body.sidebar-collapsed #sidebar-reveal { display: inline-flex; }
 button.row-main { cursor: pointer; }
 button.row-main:focus-visible { outline: none; }
 .latest-row .row-prio { padding: 0.6rem 0.7rem 0 0; }
-.latest-row.unlinked { opacity: 0.65; }
+.latest-row.unlinked { opacity: 0.6; }
+.latest-row.unlinked .row-main { cursor: not-allowed; }
 .latest-row .when { grid-row: span 3; display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; color: #bdbdd6; white-space: nowrap; }
 .latest-row .state {
   display: inline-flex; align-items: center; gap: 0.35em; padding: 0.05rem 0.45rem;
