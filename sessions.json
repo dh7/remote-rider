@@ -44,12 +44,57 @@
         "port": 8231,
         "path": "/",
         "protocol": "http"
+      },
+      {
+        "id": "tab-8kr2tcjl",
+        "label": "LOAD",
+        "port": 7070,
+        "path": "/",
+        "protocol": "http"
       }
     ],
-    "display": "Gerald",
+    "display": "Lab Manager",
     "project": "/home/dh/code/gerald",
-    "color": "#ffffff",
-    "active_tab": "tab-promo-shortlist"
+    "color": "#ffffff"
+  },
+  {
+    "name": "netochka-seedfiz",
+    "machine": {
+      "name": "netochka",
+      "host": "100.119.43.10"
+    },
+    "tabs": [
+      {
+        "id": "tab-terminal",
+        "label": "Terminal",
+        "service": "terminal",
+        "port": 7681,
+        "path": "/?arg=seedfiz"
+      },
+      {
+        "id": "tab-files",
+        "label": "Files",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-seedfiz/files"
+      },
+      {
+        "id": "tab-skills",
+        "label": "Skills",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-seedfiz/skills"
+      },
+      {
+        "id": "tab-notes",
+        "label": "Notes",
+        "service": "builtin",
+        "port": 7000,
+        "path": "/workspaces/netochka-seedfiz/notes"
+      }
+    ],
+    "display": "Motif64",
+    "color": "#10b981"
   },
   {
     "name": "airbench-ai",
@@ -64,22 +109,6 @@
         "service": "terminal",
         "port": 7681,
         "path": "/?arg=airbench-ai",
-        "protocol": "http"
-      },
-      {
-        "id": "tab-monitor",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001,
-        "path": "/",
-        "protocol": "http"
-      },
-      {
-        "id": "tab-logs",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002,
-        "path": "/",
         "protocol": "http"
       },
       {
@@ -124,18 +153,6 @@
         "path": "/?arg=netochka-imgbench_ai-job2"
       },
       {
-        "id": "tab-96dj3ysb",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-f4026zqt",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
-      },
-      {
         "id": "tab-files",
         "label": "Files",
         "service": "builtin",
@@ -177,12 +194,6 @@
         "service": "terminal",
         "port": 7681,
         "path": "/?arg=netochka-image-bench-job1"
-      },
-      {
-        "id": "tab-iyr9ylg1",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
       },
       {
         "id": "tab-files",
@@ -244,7 +255,8 @@
       }
     ],
     "display": "Remote Rider",
-    "color": "#e7eb24"
+    "color": "#e7eb24",
+    "priority": "P2"
   },
   {
     "name": "gx10-gx10-1",
@@ -260,18 +272,6 @@
         "port": 7681,
         "path": "/?arg=gx10-gx10-1",
         "protocol": "http"
-      },
-      {
-        "id": "tab-ren6x85x",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-i7wmpou5",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
       },
       {
         "id": "tab-files",
@@ -306,18 +306,6 @@
         "port": 7681,
         "path": "/?arg=hal5090-hal5090-1",
         "protocol": "http"
-      },
-      {
-        "id": "tab-monitor",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-logs",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
       },
       {
         "id": "tab-files",
@@ -384,18 +372,6 @@
         "label": "Terminal",
         "service": "terminal",
         "port": 7681
-      },
-      {
-        "id": "tab-n485pdy1",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-60j816zf",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
       },
       {
         "id": "tab-files",
@@ -490,18 +466,6 @@
         "port": 7681,
         "path": "/?arg=image-store",
         "protocol": "http"
-      },
-      {
-        "id": "tab-ba6b8zde",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001
-      },
-      {
-        "id": "tab-xb479kn6",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002
       },
       {
         "id": "tab-files",
@@ -599,22 +563,6 @@
         "protocol": "http"
       },
       {
-        "id": "tab-monitor",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001,
-        "path": "/",
-        "protocol": "http"
-      },
-      {
-        "id": "tab-logs",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002,
-        "path": "/",
-        "protocol": "http"
-      },
-      {
         "id": "tab-files",
         "label": "Files",
         "service": "builtin",
@@ -655,22 +603,6 @@
         "service": "terminal",
         "port": 7681,
         "path": "/?arg=netochka-damienhenry",
-        "protocol": "http"
-      },
-      {
-        "id": "tab-monitor",
-        "label": "Monitor",
-        "service": "monitor",
-        "port": 8001,
-        "path": "/",
-        "protocol": "http"
-      },
-      {
-        "id": "tab-logs",
-        "label": "Logs",
-        "service": "logs",
-        "port": 8002,
-        "path": "/",
         "protocol": "http"
       },
       {
