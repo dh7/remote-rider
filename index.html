@@ -13,7 +13,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png?v=10">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=10">
   <title>Remote Rider</title>
-  <link rel="stylesheet" href="/static/style.css?v=7">
+  <link rel="stylesheet" href="/static/style.css?v=9">
 </head>
 <body>
   <div id="sidebar">
@@ -260,7 +260,9 @@
       <button id="latest-back" class="secondary-btn" type="button">← Workspaces</button>
       <h1>Sessions</h1>
       <span id="latest-meta" class="muted-note"></span>
+      <button id="task-new" class="primary-btn" type="button" title="Start a Claude task now, or queue it for an agent">+ New task</button>
     </header>
+    <p id="latest-flash" role="status"></p>
     <div id="latest-controls">
       <div class="latest-ctl" id="latest-sort" role="group" aria-label="Sort">
         <span class="latest-ctl-label">Sort</span>
@@ -284,9 +286,65 @@
       </div>
     </div>
     <p id="latest-error">Can't reach the hub. Retrying.</p>
+    <details id="queue-section" open>
+      <summary><span class="queue-head">Queue</span> <span id="queue-meta" class="muted-note"></span></summary>
+      <ol id="queue-list"></ol>
+    </details>
     <ol id="latest-list"></ol>
   </div>
 
-  <script src="/static/app.js?v=13"></script>
+  <div id="task-modal">
+    <form id="task-card" autocomplete="off">
+      <h2>New task</h2>
+      <div class="form-row">
+        <label for="task-prompt">Prompt</label>
+        <textarea id="task-prompt" rows="6" placeholder="What should Claude do?" required></textarea>
+      </div>
+      <div class="form-row">
+        <label for="task-name">Name <span class="muted-note">(session and byobu tab)</span></label>
+        <input id="task-name" type="text" maxlength="60" placeholder="Optional, e.g. flux2-capsule">
+      </div>
+      <div class="inline-row task-row">
+        <div class="form-row">
+          <label for="task-machine">Computer</label>
+          <select id="task-machine"></select>
+        </div>
+        <div class="form-row">
+          <label for="task-workspace">Workspace</label>
+          <select id="task-workspace"></select>
+        </div>
+        <div class="form-row">
+          <label for="task-priority">Priority</label>
+          <select id="task-priority">
+            <option value="">None</option>
+            <option value="P0">P0</option>
+            <option value="P1">P1</option>
+            <option value="P2">P2</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="task-folder">Folder</label>
+        <div class="task-folder-row">
+          <input id="task-folder" type="text" placeholder="~" spellcheck="false">
+          <button id="task-browse" class="secondary-btn" type="button">Browse</button>
+        </div>
+        <div id="task-dirs" hidden>
+          <div id="task-dirs-path" class="muted-note"></div>
+          <ul id="task-dirs-list"></ul>
+        </div>
+      </div>
+      <label class="task-check"><input id="task-autonomous" type="checkbox"> Autonomous: skip permission prompts (Start only)</label>
+      <p id="task-hint" class="muted-note"></p>
+      <p id="task-error" role="alert"></p>
+      <div id="task-actions">
+        <button id="task-cancel" class="secondary-btn" type="button">Cancel</button>
+        <button id="task-queue" class="secondary-btn" type="button" title="Save it; an agent on that computer will pull it">Queue</button>
+        <button id="task-start" class="primary-btn" type="submit">Start</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="/static/app.js?v=16"></script>
 </body>
 </html>

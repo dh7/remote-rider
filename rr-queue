@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""
+rr-queue — take and add RemoteRider queue tasks from an agent.
+
+  rr-queue next                  Take the most urgent task for this machine/folder;
+                                 prints its prompt (exit 3 if the queue is empty)
+  rr-queue done [NOTE]           Mark the current task done (optional short note)
+  rr-queue release [NOTE]        Give the current task back (someone else takes it)
+  rr-queue add "PROMPT" [--name N] [--machine M] [--workspace W] [--folder F] [--priority P0|P1|P2]
+  rr-queue list [--all]          Waiting and taken tasks (--all: done ones too)
+  rr-queue current               The task this folder is working on
+
+Control URL and workspace come from the nearest .rr file (walking up from the
+current folder); machine defaults to the one you run on (by its tailnet address),
+folder to the current one.
+The task stays yours while the Claude session that ran `rr-queue next` is alive;
+when that session ends, the task goes back to waiting automatically.
+
+Options: --control URL, --workspace NAME, --machine NAME, --folder PATH, --json
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+CLAUDE_HOME = Path.home() / ".claude"
+STATE_DIR = Path.home() / ".cache" / "remote-rider" / "queue-current"
+
+
+def _find_rr(start: Path):
+    current = start.resolve()
+    while True:
+        candidate = current / ".rr"
+        if candidate.exists():
+            return candidate
+        if current.parent == current:
+            return None
+        current = current.parent
+
+
+def _call(method: str, url: str, payload: dict | None = None):
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(url, data=data, headers={"content-type": "application/json"}, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read()
+            return resp.status, (json.loads(body) if body else None)
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read()).get("detail")
+        except Exception:  # noqa: BLE001
+            detail = exc.reason
+        print(f"error: {exc.code} {detail}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as exc:
+        print(f"error: can't reach {url}: {exc.reason}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _stat_fields(pid: int) -> list[str]:
+    return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+
+
+def _claude_taker() -> dict:
+    """The Claude session this command runs under (walks up parent processes)."""
+    pid = os.getppid()
+    for _ in range(40):
+        if pid <= 1:
+            break
+        try:
+            info = json.loads((CLAUDE_HOME / "sessions" / f"{pid}.json").read_text())
+            return {"pid": pid, "proc_start": _stat_fields(pid)[19], "session_id": info.get("sessionId"),
+                    "name": info.get("name")}
+        except (OSError, ValueError, IndexError):
+            pass
+        try:
+            pid = int(_stat_fields(pid)[1])
+        except (OSError, ValueError, IndexError):
+            break
+    return {}
+
+
+def _state_file(folder: str) -> Path:
+    return STATE_DIR / (hashlib.sha1(folder.encode()).hexdigest()[:16] + ".json")
+
+
+def _remember(folder: str, task: dict | None) -> None:
+    path = _state_file(folder)
+    if task is None:
+        path.unlink(missing_ok=True)
+        return
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"id": task["id"], "folder": folder}))
+
+
+def _current_id(folder: str, explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    try:
+        return json.loads(_state_file(folder).read_text())["id"]
+    except (OSError, ValueError, KeyError):
+        print("error: no current task in this folder (pass --id)", file=sys.stderr)
+        sys.exit(1)
+
+
+def _print_task(task: dict, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(task, indent=1))
+        return
+    where = " ".join(x for x in [task.get("machine"), task.get("workspace") or "", task.get("folder") or ""] if x)
+    title = f"  {task['name']}" if task.get("name") else ""
+    print(f"# task {task['id']}{title}  {task.get('priority') or '-'}  {task['status']}  [{where}]")
+    print(task["prompt"])
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="rr-queue", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("command", choices=["next", "done", "release", "add", "list", "current", "heartbeat"])
+    parser.add_argument("text", nargs="?", help="prompt (add) or note (done/release)")
+    parser.add_argument("--control")
+    parser.add_argument("--workspace")
+    parser.add_argument("--name", help="short task/session name (add)")
+    parser.add_argument("--machine")
+    parser.add_argument("--folder")
+    parser.add_argument("--priority", choices=["P0", "P1", "P2"])
+    parser.add_argument("--id", help="task id (default: the current task of this folder)")
+    parser.add_argument("--all", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    folder = str(Path(args.folder).expanduser().resolve()) if args.folder else os.getcwd()
+    rr: dict = {}
+    rr_path = _find_rr(Path(folder))
+    if rr_path:
+        try:
+            rr = json.loads(rr_path.read_text())
+        except ValueError:
+            rr = {}
+    control = (args.control or rr.get("control") or os.getenv("RR_CONTROL") or "").rstrip("/")
+    if not control:
+        print("error: control URL not found — create a .rr file or pass --control", file=sys.stderr)
+        sys.exit(1)
+    workspace = args.workspace or rr.get("session")
+    machine = args.machine  # None: the hub works out which machine we are from our address
+
+    if args.command == "next":
+        taker = _claude_taker()
+        status, body = _call("POST", f"{control}/queue/next", {
+            "machine": machine, "workspace": workspace, "folder": folder, **taker,
+        })
+        if status == 204 or not body:
+            print("queue empty", file=sys.stderr)
+            sys.exit(3)
+        _remember(folder, body["task"])
+        _print_task(body["task"], args.json)
+    elif args.command in ("done", "release"):
+        task_id = _current_id(folder, args.id)
+        _, body = _call("POST", f"{control}/queue/{task_id}/{args.command}", {"note": args.text})
+        _remember(folder, None)
+        print(f"task {task_id} {'done' if args.command == 'done' else 'released'}")
+    elif args.command == "heartbeat":
+        task_id = _current_id(folder, args.id)
+        _call("POST", f"{control}/queue/{task_id}/heartbeat", {})
+        print(f"task {task_id} still yours")
+    elif args.command == "add":
+        if not args.text:
+            print("error: rr-queue add \"PROMPT\"", file=sys.stderr)
+            sys.exit(1)
+        _, body = _call("POST", f"{control}/queue", {
+            "prompt": args.text, "name": args.name, "machine": machine,
+            "workspace": args.workspace, "folder": args.folder and folder,
+            "priority": args.priority, "created_by": (_claude_taker().get("name") or "rr-queue"),
+        })
+        _print_task(body["task"], args.json)
+    elif args.command == "current":
+        task_id = _current_id(folder, args.id)
+        _, body = _call("GET", f"{control}/queue")
+        task = next((t for t in body["tasks"] if t["id"] == task_id), None)
+        if task is None:
+            print("error: current task not found", file=sys.stderr)
+            sys.exit(1)
+        _print_task(task, args.json)
+    else:  # list
+        status = "" if args.all else "?status=waiting,taken"
+        _, body = _call("GET", f"{control}/queue{status}")
+        tasks = body["tasks"]
+        if args.json:
+            print(json.dumps(tasks, indent=1))
+            return
+        for t in tasks:
+            first = (f"[{t['name']}] " if t.get("name") else "") + " ".join(t["prompt"].split())[:70]
+            where = "/".join(x for x in [t["machine"], t.get("workspace") or "", t.get("folder") or ""] if x)
+            print(f"{t['id']}  {t.get('priority') or '--'}  {t['status']:<9} {where}  {first}")
+        if not tasks:
+            print("(no tasks)")
+
+
+if __name__ == "__main__":
+    main()

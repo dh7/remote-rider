@@ -941,3 +941,69 @@ button.row-main:focus-visible { outline: none; }
   .latest-row .where, .latest-row .prompt { grid-column: 1; }
   .latest-row .when { grid-row: auto; flex-direction: row; align-items: center; }
 }
+
+/* New task popup + queue (Sessions view) */
+#task-new { margin-left: auto; }
+#latest-flash { display: none; margin: -0.3rem 0 0.8rem; padding: 0.45rem 0.7rem; border-radius: 6px; background: #1b2a1f; color: #a6e3b0; border: 1px solid #2f5a3a; font-size: 13px; }
+#latest-flash.show { display: block; }
+#latest-flash.error { background: #2a1717; color: #ffb0a6; border-color: #5a2f2f; }
+
+#task-modal {
+  position: fixed; top: var(--rr-viewport-offset-top, 0px); left: 0; right: 0;
+  height: var(--rr-viewport-height, 100dvh);
+  display: none; align-items: center; justify-content: center;
+  background: rgba(7, 8, 14, 0.72); z-index: 30; padding: 1rem;
+}
+#task-modal.open { display: flex; }
+#task-card {
+  width: min(40rem, 100%); max-height: calc(var(--rr-viewport-height, 100dvh) - 2rem); overflow: auto;
+  background: #121628; border: 1px solid #394160; border-radius: 0.6rem; padding: 0.9rem;
+  display: flex; flex-direction: column; gap: 0.7rem;
+}
+#task-card h2 { font-size: 0.95rem; color: #d7defa; font-weight: bold; }
+#task-prompt { width: 100%; min-height: 7rem; resize: vertical; font: inherit; font-size: 13px; padding: 0.5rem; background: #0d1020; color: #e8ecff; border: 1px solid #394160; border-radius: 0.35rem; }
+.task-row { flex-wrap: wrap; }
+.task-row .form-row { flex: 1 1 9rem; min-width: 0; }
+.task-row select { width: 100%; }
+.task-folder-row { display: flex; gap: 0.4rem; }
+.task-folder-row input { flex: 1; min-width: 0; font-family: monospace; }
+#task-dirs { margin-top: 0.4rem; border: 1px solid #2f3352; border-radius: 0.35rem; background: #0d1020; }
+#task-dirs-path { padding: 0.35rem 0.5rem; border-bottom: 1px solid #2f3352; font-family: monospace; overflow-wrap: anywhere; }
+#task-dirs-list { list-style: none; max-height: 12rem; overflow: auto; }
+#task-dirs-list button { width: 100%; text-align: left; background: none; border: 0; color: #c9cde0; font: inherit; font-size: 13px; padding: 0.3rem 0.6rem; cursor: pointer; font-family: monospace; }
+#task-dirs-list button:hover { background: #1d2140; }
+#task-dirs-list .use { color: #a6e3b0; font-weight: bold; }
+.task-check { display: flex; align-items: center; gap: 0.45rem; color: #c9cde0; font-size: 13px; }
+#task-hint { font-size: 12px; }
+#task-error { display: none; color: #ff9a8a; font-size: 13px; }
+#task-error.show { display: block; }
+#task-actions { display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; }
+
+#queue-section { margin-bottom: 0.9rem; }
+#queue-section summary { cursor: pointer; color: #d7defa; font-size: 13px; font-weight: bold; margin-bottom: 0.4rem; list-style-position: inside; }
+#queue-section .queue-head { margin-right: 0.3rem; }
+#queue-meta { font-weight: normal; }
+#queue-list { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; }
+.queue-row {
+  display: grid; grid-template-columns: 6.2rem 1fr auto; gap: 0.2rem 0.8rem; align-items: start;
+  border: 1px dashed #3a3f5c; border-left: 6px solid var(--session-color, #3a3f5c); border-radius: 6px;
+  background: #11132a; color: #e6e8f5; font-size: 13px; padding: 0.55rem 0.7rem;
+}
+.queue-row.done { opacity: 0.6; }
+.queue-row .qstate { display: flex; flex-direction: column; gap: 0.25rem; color: #bdbdd6; white-space: nowrap; font-size: 12px; }
+.queue-row .qpill { align-self: flex-start; padding: 0.05rem 0.45rem; border-radius: 0.6rem; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.03em; background: #2a2f4d; color: #c9cde0; }
+.queue-row .qpill.taken { background: #e9ecff; color: #1a1d33; }
+.queue-row .qpill.done { background: #2f5a3a; color: #c8f0d0; }
+.queue-row .qpill.stuck { background: #ff5a5a; color: #2a0000; }
+.queue-row .qmain { min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.queue-row .qname { display: block; color: #c9d1ff; margin-bottom: 2px; }
+.queue-row .qprompt { font-weight: 600; overflow-wrap: anywhere; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.queue-row .qwhere, .queue-row .qnote { color: #9a9ab8; font-size: 12px; overflow-wrap: anywhere; }
+.queue-row .qactions { display: flex; gap: 0.3rem; align-items: center; }
+.queue-row .qactions button { font: inherit; font-size: 12px; padding: 0.15rem 0.5rem; border-radius: 4px; cursor: pointer; background: #1d2033; color: #c9cde0; border: 1px solid #3a3f5c; }
+.queue-empty { color: #8a8aa8; font-size: 12px; padding: 0.2rem 0; }
+@media (max-width: 560px) {
+  .queue-row { grid-template-columns: 1fr auto; }
+  .queue-row .qstate { grid-column: 1 / -1; flex-direction: row; align-items: center; }
+  #task-new { margin-left: 0; }
+}

@@ -4,15 +4,25 @@ import re
 import shutil
 import socket
 from typing import Any
+from urllib.parse import quote
 from urllib.parse import unquote as _url_unquote
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+import time as _time
+import uuid as _uuid
+
+import queue_store as _queue
+from claude_sessions import _workspace_tmux as _claude_workspace_tmux
 from claude_sessions import attach_window as _attach_claude_window
+from claude_sessions import default_folder as _claude_default_folder
+from claude_sessions import launch_window as _claude_launch_window
+from claude_sessions import list_dirs as _list_dirs
+from claude_sessions import procs_alive as _procs_alive
 from claude_sessions import list_sessions as _list_claude_sessions
 from claude_sessions import load_priorities as _load_claude_priorities
 from claude_sessions import select_window as _select_tmux_window
@@ -33,6 +43,13 @@ from config import (
 )
 from host_utils import _is_local_host, _is_local_server, _normalize_host, _probe_panel_port
 from models import (
+    ClaudeAliveRequest,
+    ClaudeLaunchRequest,
+    ClaudeStartRequest,
+    QueueAddRequest,
+    QueueNextRequest,
+    QueueNoteRequest,
+    QueueUpdateRequest,
     AgentStartProxyRequest,
     AgentStartRequest,
     AgentStopProxyRequest,
@@ -238,6 +255,25 @@ Runtime:
 - stop remote agent: POST {base}/agents/stop/proxy
 - schedule local remote-stack update: POST {base}/admin/update-remote
 - schedule proxied remote-stack update: POST {base}/admin/update-remote/proxy
+
+Queue (prompts waiting for an agent; any agent can read and write):
+- add: POST {base}/queue {{prompt, name?, machine?, workspace?, folder?, priority?: P0|P1|P2}}
+  (machine = RR machine name, e.g. gx10; default: the machine you call from)
+- take next: POST {base}/queue/next {{machine?, workspace?, folder?, pid?, proc_start?, session_id?}}
+  -> {{task}} or 204 when empty. Most urgent first (P0, P1, P2, none; oldest first).
+  A task stays yours while your Claude process (pid + proc_start) is alive; when it
+  ends the task goes back to waiting. Without a pid you hold it 24h per heartbeat.
+- finish: POST {base}/queue/<id>/done {{note?}}   give up: POST {base}/queue/<id>/release {{note?}}
+- list: GET {base}/queue?status=waiting,taken&machine=<name>
+- edit/cancel a waiting task: PATCH / DELETE {base}/queue/<id>
+- easiest from a shell: the rr-queue command in the remote-rider repo
+  (rr-queue next | done "note" | release | add "prompt" | list); it reads .rr.
+- loop recipe for an agent: run `rr-queue next`; if it prints a task, do it, then
+  `rr-queue done "<one-line result>"`; repeat. Exit code 3 means the queue is empty.
+
+Start Claude now (what the Sessions view's + button does):
+- POST {base}/claude/start {{workspace, prompt, name?, folder?, priority?}} opens a new window in
+  the workspace's byobu session running claude with the prompt (normal permissions).
 - schedule fleet remote-stack update: POST {base}/admin/update-all-remotes
 - inspect local update diagnostics: POST {base}/admin/update-diagnostics
 - inspect proxied update diagnostics: POST {base}/admin/update-diagnostics/proxy
@@ -368,6 +404,287 @@ def claude_attach(payload: ClaudeAttachRequest) -> dict[str, Any]:
 def claude_priorities(payload: ClaudePriorityRequest) -> dict[str, Any]:
     _require_control_api()
     return {"priorities": _set_claude_priority(payload.session_id, payload.priority)}
+
+
+# --- Launch (start Claude now) and queue (prompts agents pull) -------------------
+# Design: docs/superpowers/specs/2026-11-05-launch-and-queue-design.md
+
+def _hub_call(host: str, path: str, body: dict[str, Any] | None = None, timeout: float = 5) -> Any:
+    """JSON call to another machine's hub (POST when body is given). Raises on failure."""
+    req = UrlRequest(
+        f"http://{_normalize_host(host)}:7000{path}",
+        data=json.dumps(body).encode("utf-8") if body is not None else None,
+        headers={"content-type": "application/json"},
+        method="POST" if body is not None else "GET",
+    )
+    with urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _hub_error(host: str, exc: Exception) -> HTTPException:
+    code = getattr(exc, "code", None)
+    if code == 404:
+        return HTTPException(status_code=502, detail=f"the hub on {host} doesn't support this yet (update it)")
+    detail = getattr(exc, "reason", None) or str(exc)
+    return HTTPException(status_code=502, detail=f"hub on {host}: {detail}")
+
+
+def _machine_name(value: str) -> str:
+    """A machine's inventory name, given its name or IP (unknown values pass through)."""
+    value = (value or "").strip()
+    for m in servers():
+        if value and value.lower() in {str(m.get("name") or "").lower(), str(m.get("ip") or "").lower()}:
+            return str(m.get("name"))
+    return value
+
+
+def _caller_machine(request: Request) -> str | None:
+    """Inventory name of the machine a request comes from (by its tailnet IP; loopback = here)."""
+    ip = (request.client.host if request.client else "") or ""
+    for m in servers():
+        mip = str(m.get("ip") or "")
+        if mip and (mip == ip or (ip in ("127.0.0.1", "::1") and _is_local_host(mip))):
+            return str(m.get("name"))
+    return None
+
+
+def _queue_machine(value: str | None, request: Request) -> str:
+    machine = _machine_name(value) if value else _caller_machine(request)
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine is required (couldn't tell which machine you are)")
+    return machine
+
+
+def _machine_host(name: str) -> str | None:
+    for m in servers():
+        if str(m.get("name") or "") == name:
+            return str(m.get("ip") or "") or None
+    return None
+
+
+def _control_workspace(name: str) -> dict[str, Any]:
+    with SESSIONS_LOCK:
+        workspaces = _load_normalized_control_sessions()
+    for workspace in workspaces:
+        if workspace.get("name") == name:
+            return workspace
+    raise HTTPException(status_code=404, detail=f"no workspace {name}")
+
+
+@app.post("/claude/launch")
+def claude_launch(payload: ClaudeLaunchRequest) -> dict[str, Any]:
+    """Runtime: byobu F2 + `claude "<prompt>"` in a folder, without switching windows."""
+    _require_runtime_api()
+    folder = os.path.expanduser(payload.folder)
+    _ensure_tmux_session(payload.tmux_session, folder if os.path.isdir(folder) else None)
+    window = _claude_launch_window(
+        payload.tmux_session, folder, payload.prompt, payload.session_id, payload.label, payload.autonomous,
+        name=payload.name,
+    )
+    if window is None:
+        raise HTTPException(status_code=500, detail="could not open a tmux window")
+    return {"window": window, "session_id": payload.session_id}
+
+
+@app.post("/claude/alive")
+def claude_alive(payload: ClaudeAliveRequest) -> dict[str, Any]:
+    """Runtime: which of these exact processes (pid + start time) are still running."""
+    _require_runtime_api()
+    return {"alive": _procs_alive([(p.pid, p.proc_start) for p in payload.procs])}
+
+
+@app.get("/fs/dirs")
+def fs_dirs(path: str | None = Query(default=None, max_length=2000)) -> dict[str, Any]:
+    """Runtime: subfolders of a folder under the user's home (for the folder picker)."""
+    _require_runtime_api()
+    return _list_dirs(path)
+
+
+@app.get("/claude/dirs")
+def claude_dirs(machine: str = Query(..., max_length=255), path: str | None = Query(default=None, max_length=2000)) -> dict[str, Any]:
+    """Control: folder picker for any machine (proxied to that machine's hub)."""
+    _require_control_api()
+    host = _machine_host(_machine_name(machine))
+    if host is None:
+        raise HTTPException(status_code=404, detail=f"unknown machine {machine}")
+    if _is_local_host(host):
+        return _list_dirs(path)
+    query = f"?path={quote(path)}" if path else ""
+    try:
+        return _hub_call(host, f"/fs/dirs{query}")
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+        raise _hub_error(host, exc) from exc
+
+
+@app.get("/claude/launch-options")
+def claude_launch_options() -> dict[str, Any]:
+    """Control: machines and workspaces for the New task form."""
+    _require_control_api()
+    with SESSIONS_LOCK:
+        workspaces = _load_normalized_control_sessions()
+    rows = []
+    for w in workspaces:
+        host = (w.get("machine") or {}).get("host") or ""
+        local = _is_local_host(host)
+        rows.append({
+            "name": w.get("name"),
+            "display": w.get("display") or w.get("name"),
+            "color": w.get("color"),
+            "machine": _machine_name(host) or (w.get("machine") or {}).get("name"),
+            "tmux": _claude_workspace_tmux(w),
+            "folder": _claude_default_folder(w) if local else (w.get("project") or None),
+        })
+    machines_out = [{"name": m.get("name"), "host": m.get("ip"), "local": _is_local_host(str(m.get("ip") or ""))}
+                    for m in servers()]
+    return {"machines": machines_out, "workspaces": rows}
+
+
+@app.post("/claude/start")
+def claude_start(payload: ClaudeStartRequest, request: Request) -> dict[str, Any]:
+    """Control: start a Claude task now in a workspace's byobu session (new window)."""
+    _require_control_api()
+    # Autonomous (no permission checks) only from the RR page itself, so agents using
+    # the API can't launch unchecked sessions for each other. Browsers set this header
+    # and scripts can't from a page; a deliberate curl can, so this is a guard rail.
+    if payload.autonomous and request.headers.get("sec-fetch-site") != "same-origin":
+        raise HTTPException(status_code=403, detail="autonomous starts are only allowed from the RemoteRider page")
+    workspace = _control_workspace(payload.workspace)
+    tmux_session = _claude_workspace_tmux(workspace) or payload.workspace
+    host = (workspace.get("machine") or {}).get("host") or ""
+    local = _is_local_host(host)
+    folder = (payload.folder or "").strip() or (
+        _claude_default_folder(workspace) if local else workspace.get("project")
+    ) or "~"
+    session_id = str(_uuid.uuid4())
+    name = " ".join((payload.name or "").split()) or None
+    words = " ".join(payload.prompt.split())
+    label = name or ("✦ " + words[:22]).strip()
+    launch = ClaudeLaunchRequest(
+        tmux_session=tmux_session, folder=folder, prompt=payload.prompt,
+        session_id=session_id, label=label, name=name, autonomous=payload.autonomous,
+    )
+    if payload.priority:
+        _set_claude_priority(session_id, payload.priority)
+    try:
+        if local:
+            result = claude_launch(launch)
+        else:
+            try:
+                result = _hub_call(host, "/claude/launch", launch.model_dump(), timeout=15)
+            except Exception as exc:  # noqa: BLE001
+                raise _hub_error(host, exc) from exc
+    except Exception:
+        if payload.priority:
+            _set_claude_priority(session_id, None)
+        raise
+    return {
+        "workspace": workspace.get("name"),
+        "machine": _machine_name(host),
+        "folder": folder,
+        "window": result.get("window"),
+        "session_id": session_id,
+    }
+
+
+_QUEUE_REAP_EVERY_S = 30
+_queue_reaped_at = 0.0
+
+
+def _queue_alive(machine: str, procs: list[tuple[int, str | None]]) -> list[bool] | None:
+    host = _machine_host(machine)
+    if host is None:
+        return None
+    if _is_local_host(host):
+        return _procs_alive(procs)
+    try:
+        answer = _hub_call(host, "/claude/alive",
+                           {"procs": [{"pid": p, "proc_start": s} for p, s in procs]}, timeout=3)
+        alive = answer.get("alive")
+        return alive if isinstance(alive, list) and len(alive) == len(procs) else None
+    except Exception:  # noqa: BLE001 - unreachable: keep tasks taken
+        return None
+
+
+def _queue_reap(force: bool = False) -> None:
+    global _queue_reaped_at
+    now = _time.monotonic()
+    if not force and now - _queue_reaped_at < _QUEUE_REAP_EVERY_S:
+        return
+    _queue_reaped_at = now
+    _queue.reap(_queue_alive)
+
+
+def _queue_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except _queue.QueueError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+
+@app.get("/queue")
+def queue_list(status: str | None = Query(default=None, max_length=100),
+               machine: str | None = Query(default=None, max_length=255)) -> dict[str, Any]:
+    """Tasks, most urgent first. status: comma list of waiting,taken,done,cancelled."""
+    _require_control_api()
+    _queue_reap()
+    return {"tasks": _queue.list_tasks(status=status, machine=_machine_name(machine) if machine else None)}
+
+
+@app.post("/queue")
+def queue_add(payload: QueueAddRequest, request: Request) -> dict[str, Any]:
+    _require_control_api()
+    fields = payload.model_dump()
+    fields["machine"] = _queue_machine(payload.machine, request)
+    return {"task": _queue_call(_queue.add, fields)}
+
+
+@app.post("/queue/next")
+def queue_next(payload: QueueNextRequest, request: Request):
+    """Take the most urgent waiting task for this machine (and workspace/folder). 204 if none."""
+    _require_control_api()
+    _queue_reap()
+    task = _queue.take_next(
+        _queue_machine(payload.machine, request),
+        {"pid": payload.pid, "proc_start": payload.proc_start, "session_id": payload.session_id, "name": payload.name},
+        workspace=payload.workspace,
+        folder=payload.folder,
+    )
+    if task is None:
+        return Response(status_code=204)
+    return {"task": task}
+
+
+@app.post("/queue/{task_id}/done")
+def queue_done(task_id: str, payload: QueueNoteRequest) -> dict[str, Any]:
+    _require_control_api()
+    return {"task": _queue_call(_queue.finish, task_id, payload.note)}
+
+
+@app.post("/queue/{task_id}/release")
+def queue_release(task_id: str, payload: QueueNoteRequest) -> dict[str, Any]:
+    _require_control_api()
+    return {"task": _queue_call(_queue.release, task_id, payload.note)}
+
+
+@app.post("/queue/{task_id}/heartbeat")
+def queue_heartbeat(task_id: str) -> dict[str, Any]:
+    _require_control_api()
+    return {"task": _queue_call(_queue.heartbeat, task_id)}
+
+
+@app.patch("/queue/{task_id}")
+def queue_update(task_id: str, payload: QueueUpdateRequest) -> dict[str, Any]:
+    _require_control_api()
+    fields = payload.model_dump(exclude_unset=True)
+    if fields.get("machine"):
+        fields["machine"] = _machine_name(fields["machine"])
+    return {"task": _queue_call(_queue.update, task_id, fields)}
+
+
+@app.delete("/queue/{task_id}")
+def queue_cancel(task_id: str) -> dict[str, Any]:
+    _require_control_api()
+    return {"task": _queue_call(_queue.cancel, task_id)}
 
 
 @app.get("/api/info")

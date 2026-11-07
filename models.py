@@ -179,3 +179,72 @@ class ServiceStopProxyRequest(BaseModel):
     host: str
     hub_port: int = Field(default=7000, ge=1, le=65535)
     port: int = Field(ge=1, le=65535)
+
+
+Priority = Literal["P0", "P1", "P2"]
+
+
+class ClaudeLaunchRequest(BaseModel):
+    """Runtime: open a window in a tmux session running claude with a prompt."""
+    tmux_session: str = Field(min_length=1, max_length=120)
+    folder: str = Field(min_length=1, max_length=2000)
+    prompt: str = Field(min_length=1, max_length=100_000)
+    session_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    label: str = Field(default="claude", min_length=1, max_length=60)
+    name: str | None = Field(default=None, max_length=60)  # Claude session name (claude --name)
+    autonomous: bool = False
+
+
+class ClaudeStartRequest(BaseModel):
+    """Control: start a Claude task now in a workspace (the Sessions view's Start)."""
+    workspace: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=1, max_length=100_000)
+    name: str | None = Field(default=None, max_length=60)  # session + byobu tab name
+    folder: str | None = Field(default=None, max_length=2000)
+    priority: Priority | None = None
+    autonomous: bool = False
+
+
+class ProcRef(BaseModel):
+    pid: int = Field(ge=1)
+    proc_start: str | None = Field(default=None, max_length=40)
+
+
+class ClaudeAliveRequest(BaseModel):
+    procs: list[ProcRef] = Field(max_length=500)
+
+
+class QueueAddRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=100_000)
+    name: str | None = Field(default=None, max_length=60)
+    machine: str | None = Field(default=None, max_length=255)  # default: the caller's machine
+    workspace: str | None = Field(default=None, max_length=120)
+    folder: str | None = Field(default=None, max_length=2000)
+    priority: Priority | None = None
+    autonomous: bool = False
+    created_by: str | None = Field(default=None, max_length=200)
+
+
+class QueueNextRequest(BaseModel):
+    machine: str | None = Field(default=None, max_length=255)  # default: the caller's machine
+    workspace: str | None = Field(default=None, max_length=120)
+    folder: str | None = Field(default=None, max_length=2000)
+    pid: int | None = Field(default=None, ge=1)
+    proc_start: str | None = Field(default=None, max_length=40)
+    session_id: str | None = Field(default=None, max_length=200)
+    name: str | None = Field(default=None, max_length=200)
+
+
+class QueueNoteRequest(BaseModel):
+    note: str | None = Field(default=None, max_length=4000)
+
+
+class QueueUpdateRequest(BaseModel):
+    prompt: str | None = Field(default=None, min_length=1, max_length=100_000)
+    name: str | None = Field(default=None, max_length=60)
+    machine: str | None = Field(default=None, min_length=1, max_length=255)
+    workspace: str | None = Field(default=None, max_length=120)
+    folder: str | None = Field(default=None, max_length=2000)
+    priority: Priority | None = None
+    autonomous: bool | None = None
+    stuck: bool | None = None

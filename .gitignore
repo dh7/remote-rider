@@ -20,3 +20,5 @@ env/dh7skills/
 gateway.env
 *.cloudflared*.json
 deploy/*.json
+queue.json
+queue.json.tmp

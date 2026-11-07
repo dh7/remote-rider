@@ -1412,6 +1412,7 @@ async function refreshLatest() {
     updateLatestBadge();
     renderLatest();
     errorEl.style.display = 'none';
+    if (document.getElementById('latest-view').classList.contains('open')) refreshQueue();
   } catch (_) {
     errorEl.style.display = 'block';
   }
@@ -1426,6 +1427,7 @@ function startLatestPolling() {
 function showLatest() {
   document.getElementById('latest-view').classList.add('open');
   renderLatest();
+  renderQueue();
   refreshLatest();
 }
 
@@ -1448,6 +1450,348 @@ function closeLatest() {
     window.history.pushState(null, '', '/');
     hideLatest();
   }
+}
+
+// ---- New task (Start now / Queue) and the queue list --------------------------
+let queueTasks = [];
+let taskOptions = null;            // {machines, workspaces} from /claude/launch-options
+let taskFolderTouched = false;     // folder typed/browsed by hand (sent with Queue)
+let taskWorkspaceTouched = false;  // workspace picked by hand (sent with Queue; a pre-pick isn't)
+let latestFlashTimer = null;
+
+function latestFlash(text, isError = false) {
+  const el = document.getElementById('latest-flash');
+  el.textContent = text;
+  el.classList.toggle('error', isError);
+  el.classList.add('show');
+  window.clearTimeout(latestFlashTimer);
+  latestFlashTimer = window.setTimeout(() => el.classList.remove('show'), isError ? 9000 : 5000);
+}
+
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: options.body ? { 'content-type': 'application/json' } : undefined,
+  });
+  if (response.status === 204) return null;
+  let body = null;
+  try { body = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error((body && body.detail && String(body.detail)) || `HTTP ${response.status}`);
+  return body;
+}
+
+function taskEls() {
+  const $ = (id) => document.getElementById(id);
+  return {
+    modal: $('task-modal'), form: $('task-card'), prompt: $('task-prompt'), name: $('task-name'), machine: $('task-machine'),
+    workspace: $('task-workspace'), priority: $('task-priority'), folder: $('task-folder'),
+    browse: $('task-browse'), dirs: $('task-dirs'), dirsPath: $('task-dirs-path'), dirsList: $('task-dirs-list'),
+    autonomous: $('task-autonomous'), hint: $('task-hint'), error: $('task-error'),
+    start: $('task-start'), queue: $('task-queue'), cancel: $('task-cancel'),
+  };
+}
+
+function taskError(text) {
+  const { error } = taskEls();
+  error.textContent = text || '';
+  error.classList.toggle('show', Boolean(text));
+}
+
+function fillTaskWorkspaces() {
+  const els = taskEls();
+  const machine = els.machine.value;
+  const current = els.workspace.value;
+  const rows = (taskOptions?.workspaces || []).filter((w) => !machine || w.machine === machine);
+  const options = [['', machine ? 'Any (queue) / choose to start' : 'Choose…']]
+    .concat(rows.map((w) => [w.name, w.display]));
+  els.workspace.replaceChildren(...options.map(([value, label]) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }));
+  els.workspace.value = rows.some((w) => w.name === current) ? current : '';
+}
+
+function selectedTaskWorkspace() {
+  const name = taskEls().workspace.value;
+  return (taskOptions?.workspaces || []).find((w) => w.name === name) || null;
+}
+
+function updateTaskHint() {
+  const els = taskEls();
+  const workspace = selectedTaskWorkspace();
+  const machine = els.machine.value;
+  const parts = [];
+  if (workspace) {
+    parts.push(`Start: new window in ${workspace.display} on ${workspace.machine}, in ${els.folder.value.trim() || workspace.folder || '~'}.`);
+  } else {
+    parts.push('Start: choose a workspace.');
+  }
+  if (machine) {
+    let target = `any agent on ${machine}`;
+    if (workspace && taskWorkspaceTouched) target += ` in ${workspace.display}`;
+    if (taskFolderTouched && els.folder.value.trim()) target += `, in ${els.folder.value.trim()}`;
+    parts.push(`Queue: for ${target}.`);
+  } else {
+    parts.push('Queue: choose a computer.');
+  }
+  els.hint.textContent = parts.join(' ');
+  els.start.disabled = !workspace;
+  els.queue.disabled = !machine;
+}
+
+function onTaskWorkspaceChange() {
+  const els = taskEls();
+  const workspace = selectedTaskWorkspace();
+  if (workspace) {
+    if (els.machine.value !== workspace.machine) {
+      els.machine.value = workspace.machine;
+      fillTaskWorkspaces();
+      els.workspace.value = workspace.name;
+    }
+    if (!taskFolderTouched) els.folder.value = workspace.folder || '';
+    els.folder.placeholder = workspace.folder || '~';
+  } else if (!taskFolderTouched) {
+    els.folder.value = '';
+    els.folder.placeholder = '~';
+  }
+  els.dirs.hidden = true;
+  updateTaskHint();
+}
+
+async function browseTaskDirs(path) {
+  const els = taskEls();
+  const machine = els.machine.value;
+  if (!machine) { taskError('Choose a computer first.'); return; }
+  taskError('');
+  els.dirs.hidden = false;
+  els.dirsPath.textContent = 'Loading…';
+  els.dirsList.replaceChildren();
+  try {
+    const query = new URLSearchParams({ machine });
+    if (path) query.set('path', path);
+    const data = await apiJson(`/claude/dirs?${query}`);
+    els.dirsPath.textContent = data.path;
+    const items = [];
+    const add = (label, cls, handler) => {
+      const li = document.createElement('li');
+      const button = latestEl('button', cls, label);
+      button.type = 'button';
+      button.onclick = handler;
+      li.append(button);
+      items.push(li);
+    };
+    add(`✓ Use ${data.path}`, 'use', () => {
+      els.folder.value = data.path;
+      taskFolderTouched = true;
+      els.dirs.hidden = true;
+      updateTaskHint();
+    });
+    if (data.parent) add('↑ ..', '', () => browseTaskDirs(data.parent));
+    data.dirs.forEach((name) => add(`${name}/`, '', () => browseTaskDirs(`${data.path}/${name}`)));
+    els.dirsList.replaceChildren(...items);
+  } catch (err) {
+    els.dirsPath.textContent = '';
+    taskError(`Can't list folders: ${err.message}`);
+  }
+}
+
+async function openTaskModal() {
+  const els = taskEls();
+  taskError('');
+  taskFolderTouched = false;
+  taskWorkspaceTouched = false;
+  els.form.reset();
+  els.dirs.hidden = true;
+  els.modal.classList.add('open');
+  els.prompt.focus();
+  try {
+    taskOptions = await apiJson('/claude/launch-options');
+  } catch (err) {
+    taskError(`Can't load computers and workspaces: ${err.message}`);
+    return;
+  }
+  const local = taskOptions.machines.find((m) => m.local);
+  els.machine.replaceChildren(...[['', 'Choose…'], ...taskOptions.machines.map((m) => [m.name, m.name])].map(([v, label]) => {
+    const option = document.createElement('option');
+    option.value = v;
+    option.textContent = label;
+    return option;
+  }));
+  els.machine.value = local ? local.name : '';
+  fillTaskWorkspaces();
+  // Pre-pick the workspace you're in, if it's on that computer.
+  if (state.activeSession && taskOptions.workspaces.some((w) => w.name === state.activeSession && w.machine === els.machine.value)) {
+    els.workspace.value = state.activeSession;
+  }
+  onTaskWorkspaceChange();
+}
+
+function closeTaskModal() {
+  taskEls().modal.classList.remove('open');
+}
+
+function taskBusy(busy) {
+  const els = taskEls();
+  [els.start, els.queue].forEach((b) => { b.disabled = busy; });
+  if (!busy) updateTaskHint();
+}
+
+async function submitTask(mode) {
+  const els = taskEls();
+  const prompt = els.prompt.value.trim();
+  if (!prompt) { taskError('Write a prompt first.'); els.prompt.focus(); return; }
+  const workspace = selectedTaskWorkspace();
+  const priority = els.priority.value || null;
+  const name = els.name.value.trim() || null;
+  taskError('');
+  taskBusy(true);
+  try {
+    if (mode === 'start') {
+      if (!workspace) throw new Error('Choose a workspace to start in.');
+      const result = await apiJson('/claude/start', {
+        method: 'POST',
+        body: JSON.stringify({
+          workspace: workspace.name, prompt, name, priority,
+          folder: els.folder.value.trim() || null, autonomous: els.autonomous.checked,
+        }),
+      });
+      closeTaskModal();
+      latestFlash(`Started in ${workspace.display} (${result.machine}), ${result.folder}.`);
+      window.setTimeout(refreshLatest, 1500);
+    } else {
+      if (!els.machine.value) throw new Error('Choose a computer for the queue.');
+      const result = await apiJson('/queue', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt, name, priority, machine: els.machine.value,
+          workspace: workspace && taskWorkspaceTouched ? workspace.name : null,
+          folder: taskFolderTouched ? (els.folder.value.trim() || null) : null,
+          autonomous: els.autonomous.checked, created_by: 'Sessions view',
+        }),
+      });
+      closeTaskModal();
+      latestFlash(`Queued for ${result.task.workspace ? `${result.task.machine} / ${workspace.display}` : `any agent on ${result.task.machine}`}${result.task.folder ? `, in ${result.task.folder}` : ''}.`);
+      refreshQueue();
+    }
+  } catch (err) {
+    taskError(err.message);
+  } finally {
+    taskBusy(false);
+  }
+}
+
+function bindTaskForm() {
+  const els = taskEls();
+  document.getElementById('task-new').onclick = openTaskModal;
+  els.cancel.onclick = closeTaskModal;
+  els.modal.addEventListener('click', (e) => { if (e.target === els.modal) closeTaskModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && els.modal.classList.contains('open')) closeTaskModal();
+  });
+  els.machine.onchange = () => { fillTaskWorkspaces(); if (!els.workspace.value) taskWorkspaceTouched = false; onTaskWorkspaceChange(); };
+  els.workspace.onchange = () => { taskWorkspaceTouched = Boolean(els.workspace.value); onTaskWorkspaceChange(); };
+  els.folder.oninput = () => { taskFolderTouched = els.folder.value.trim() !== ''; updateTaskHint(); };
+  els.browse.onclick = () => browseTaskDirs(els.folder.value.trim() || selectedTaskWorkspace()?.folder || null);
+  els.form.onsubmit = (e) => { e.preventDefault(); submitTask('start'); };
+  els.queue.onclick = () => submitTask('queue');
+  els.prompt.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitTask('start'); }
+  });
+}
+
+async function refreshQueue() {
+  try {
+    const data = await apiJson('/queue');
+    queueTasks = data.tasks || [];
+    renderQueue();
+  } catch (_) { /* the sessions refresh shows connectivity errors */ }
+}
+
+async function queueAction(task, method, suffix = '', body = undefined) {
+  try {
+    await apiJson(`/queue/${task.id}${suffix}`, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (err) {
+    latestFlash(`Queue: ${err.message}`, true);
+  }
+  refreshQueue();
+}
+
+function buildQueueRow(task) {
+  const node = latestEl('div', `queue-row ${task.status}`);
+  const color = workspaceColor(task.workspace);
+  if (color) node.style.setProperty('--session-color', color);
+
+  const st = latestEl('div', 'qstate');
+  const stuck = task.status === 'waiting' && task.stuck;
+  const label = stuck ? 'stuck' : task.status;
+  st.append(latestEl('span', `qpill ${stuck ? 'stuck' : task.status}`, label));
+  const since = task.status === 'taken' ? task.taken_at : task.status === 'done' ? task.done_at : task.created_at;
+  st.append(latestEl('span', '', timeAgo(since * 1000)));
+
+  const main = latestEl('div', 'qmain');
+  if (task.name) main.append(latestEl('strong', 'qname', task.name));
+  const promptEl = latestEl('span', 'qprompt', task.prompt);
+  promptEl.title = task.prompt;
+  main.append(promptEl);
+  const ws = task.workspace && state.sessions.find((s) => s.name === task.workspace);
+  const where = [task.machine, ws ? displayName(ws) : task.workspace, task.folder].filter(Boolean).join(' › ');
+  let whereText = `for ${where || 'any'}`;
+  if (task.status === 'taken' && task.taken_by) {
+    const who = task.taken_by.name || (task.taken_by.session_id || '').slice(0, 8) || 'an agent';
+    whereText += ` · taken by ${who}${task.taken_by.pid ? '' : ' (no pid, 24h lease)'}`;
+  }
+  if (task.autonomous) whereText += ' · autonomous';
+  main.append(latestEl('span', 'qwhere', whereText));
+  if (task.note) main.append(latestEl('span', 'qnote', `note: ${task.note}`));
+  if (stuck) main.append(latestEl('span', 'qnote', `given back ${task.requeues}×, not handed out until you unstick it`));
+
+  const actions = latestEl('div', 'qactions');
+  if (task.status === 'waiting') {
+    const select = prioritySelect(task.priority, null, (value) => queueAction(task, 'PATCH', '', { priority: value }));
+    select.title = 'Task priority';
+    actions.append(select);
+    if (stuck) {
+      const unstick = latestEl('button', '', 'Unstick');
+      unstick.type = 'button';
+      unstick.onclick = () => queueAction(task, 'PATCH', '', { stuck: false });
+      actions.append(unstick);
+    }
+    const del = latestEl('button', '', 'Delete');
+    del.type = 'button';
+    del.title = 'Cancel this task';
+    del.onclick = () => { if (confirm('Delete this queued task?')) queueAction(task, 'DELETE'); };
+    actions.append(del);
+  } else if (task.priority) {
+    actions.append(latestEl('span', `prio-select ${task.priority.toLowerCase()}`, task.priority));
+  }
+  node.append(st, main, actions);
+  return node;
+}
+
+function renderQueue() {
+  if (!document.getElementById('latest-view').classList.contains('open')) return;
+  if (pickerOpen()) return;
+  const dayAgo = Date.now() / 1000 - 24 * 3600;
+  const live = queueTasks.filter((t) => t.status === 'waiting' || t.status === 'taken');
+  const recent = queueTasks
+    .filter((t) => t.status === 'done' && (t.done_at || 0) >= dayAgo)
+    .sort((a, b) => b.done_at - a.done_at);
+  const items = [...live, ...recent].map((task) => {
+    const li = document.createElement('li');
+    li.append(buildQueueRow(task));
+    return li;
+  });
+  if (!items.length) items.push(latestEl('li', 'queue-empty', 'Nothing queued. Use + New task › Queue, or rr-queue add from an agent.'));
+  document.getElementById('queue-list').replaceChildren(...items);
+  const waiting = live.filter((t) => t.status === 'waiting').length;
+  const taken = live.length - waiting;
+  const parts = [];
+  if (waiting) parts.push(`${waiting} waiting`);
+  if (taken) parts.push(`${taken} taken`);
+  if (recent.length) parts.push(`${recent.length} done today`);
+  document.getElementById('queue-meta').textContent = parts.length ? `· ${parts.join(' · ')}` : '';
 }
 
 function bindLatestView() {
@@ -1473,6 +1817,7 @@ function bindLatestView() {
   document.querySelectorAll('#latest-prio button').forEach((b) => {
     b.onclick = () => { latestPrefs.prio = b.dataset.prio; saveLatestPrefs(); renderLatest(); };
   });
+  bindTaskForm();
   startLatestPolling();
 }
 

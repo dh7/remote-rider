@@ -137,6 +137,102 @@ def attach_window(job_id: str, tmux_session: str, cwd: str, label: str) -> str |
     return window if result.returncode == 0 and WINDOW_ID_RE.match(window) else None
 
 
+
+PROMPT_DIR = Path.home() / ".cache" / "remote-rider" / "prompts"
+
+
+def launch_window(
+    tmux_session: str,
+    folder: str,
+    prompt: str,
+    session_id: str,
+    label: str,
+    autonomous: bool = False,
+    prompt_dir: Path | None = None,
+    name: str | None = None,
+) -> str | None:
+    """Window id of a new tmux window running `claude "<prompt>"` in `folder` (byobu F2).
+
+    The prompt goes through a private file, never through a shell string, so quotes and
+    newlines survive. `-d` keeps whatever window the user is looking at. The window
+    keeps a shell after Claude exits.
+    """
+    if not shutil.which("tmux"):
+        return None
+    prompt_dir = prompt_dir or PROMPT_DIR
+    prompt_dir.mkdir(parents=True, exist_ok=True)
+    prompt_file = prompt_dir / f"{session_id}.txt"
+    fd = os.open(prompt_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(prompt)
+    args = [_claude_bin(), "--session-id", session_id]
+    if name:
+        args += ["--name", name]
+    if autonomous:
+        args.append("--dangerously-skip-permissions")
+    quoted_file = shlex.quote(str(prompt_file))
+    command = (
+        f"p=\"$(cat {quoted_file})\"; rm -f {quoted_file}; "
+        f"{' '.join(shlex.quote(a) for a in args)} \"$p\"; exec \"${{SHELL:-bash}}\""
+    )
+    result = subprocess.run(
+        ["tmux", "new-window", "-d", "-P", "-F", "#{window_id}", "-t", f"={tmux_session}:",
+         "-n", label, "-c", folder if os.path.isdir(folder) else str(Path.home()), command],
+        capture_output=True, text=True, check=False,
+    )
+    window = result.stdout.strip()
+    if result.returncode == 0 and WINDOW_ID_RE.match(window):
+        return window
+    prompt_file.unlink(missing_ok=True)
+    return None
+
+
+def procs_alive(procs: list[tuple[int, str | None]]) -> list[bool]:
+    """Per (pid, start time): is that exact process still running? (pid reuse safe)"""
+    answers = []
+    for pid, start in procs:
+        info = _proc_info(pid) if pid > 0 else None
+        if info is None:
+            try:
+                stat = Path(f"/proc/{pid}/stat").read_text()
+                info = (stat.rsplit(")", 1)[1].split()[19], "")
+            except (OSError, IndexError):
+                info = None
+        answers.append(info is not None and (not start or info[0] == start))
+    return answers
+
+
+def list_dirs(path: str | None, home: Path | None = None) -> dict[str, Any]:
+    """Subfolders of `path` (default: home), restricted to the user's home tree."""
+    home = (home or Path.home()).resolve()
+    target = Path(path).expanduser().resolve() if path else home
+    if target != home and home not in target.parents:
+        target = home
+    if not target.is_dir():
+        target = home
+    dirs = []
+    try:
+        for entry in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+            if entry.name.startswith(".") or not entry.is_dir():
+                continue
+            dirs.append(entry.name)
+    except OSError:
+        pass
+    parent = str(target.parent) if target != home else None
+    return {"path": str(target), "parent": parent, "home": str(home), "dirs": dirs[:500]}
+
+
+def default_folder(workspace: dict[str, Any]) -> str | None:
+    """Where a new terminal in this workspace should start: its project, else where its panes are."""
+    project = (workspace.get("project") or "").strip()
+    if project:
+        return project
+    tmux = _workspace_tmux(workspace)
+    if not tmux:
+        return None
+    votes = Counter(p["path"] for p in _tmux_panes().values() if p["session"] == tmux and p.get("path"))
+    return votes.most_common(1)[0][0] if votes else None
+
 def select_window(session: str, window: str) -> bool:
     if not WINDOW_ID_RE.match(window) or not shutil.which("tmux"):
         return False
