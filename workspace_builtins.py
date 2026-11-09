@@ -100,6 +100,12 @@ def _safe(root: Path, rel_path: str) -> Path:
     return target
 
 
+def _js(value) -> str:
+    """JSON for embedding inside an inline <script>: no `</script>`, `<!--` or line-separator breakouts."""
+    return (json.dumps(value).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
+
+
 def _q(path: str) -> str:
     return quote(path, safe="/")
 
@@ -534,8 +540,8 @@ def files_upload_form(session_name: str, path: str = "") -> HTMLResponse:
       <div id="upload-status" class="upload-status"></div>
       <div id="up-results" class="up-results"></div>
       <script>
-        const uploadDir = {json.dumps(path)};
-        const base = {json.dumps(base)};
+        const uploadDir = {_js(path)};
+        const base = {_js(base)};
         const dz = document.getElementById('dropzone');
         const fileInput = document.getElementById('file-input');
         const statusEl = document.getElementById('upload-status');
@@ -827,10 +833,10 @@ def files_edit(session_name: str, path: str) -> HTMLResponse:
         f'<script src="{st}/vendor/codemirror/addon/edit/matchbrackets.min.js"></script>'
     )
     prelude = (
-        f"const BASE = {json.dumps(base)};\n"
-        f"const STATIC_BASE = {json.dumps(st)};\n"
-        f"const REL = {json.dumps(rel)};\n"
-        f"const IS_MD = {json.dumps(is_md)};\n"
+        f"const BASE = {_js(base)};\n"
+        f"const STATIC_BASE = {_js(st)};\n"
+        f"const REL = {_js(rel)};\n"
+        f"const IS_MD = {_js(is_md)};\n"
     )
     html = f"""
     <html><head>{FILE_STYLE}{cm_assets}</head><body>

@@ -44,7 +44,11 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", 
 # Never forwarded to backends: credentials, client-supplied forwarding info, our own markers.
 DROP_REQ = HOP | {"cookie", "authorization", "x-real-ip", "true-client-ip", "cdn-loop", "forwarded",
                   "x-rr-via-gateway", "origin", "referer"}
-DROP_RESP = (HOP - {"content-length", "transfer-encoding"}) | {"server", "set-cookie", "x-powered-by"}
+DROP_RESP = (HOP - {"content-length", "transfer-encoding"}) | {"server", "set-cookie", "x-powered-by",
+                                                              # a backend must never widen cross-origin access to the authenticated origin
+                                                              "access-control-allow-origin", "access-control-allow-credentials",
+                                                              "access-control-allow-methods", "access-control-allow-headers",
+                                                              "access-control-expose-headers", "access-control-max-age"}
 WS_HANDSHAKE = {"sec-websocket-key", "sec-websocket-version", "sec-websocket-extensions", "sec-websocket-protocol"}
 SECURITY_HEADERS = {
     "cache-control": "private, no-store",
