@@ -22,3 +22,6 @@ gateway.env
 deploy/*.json
 queue.json
 queue.json.tmp
+
+# local secrets file
+secrets.txt
