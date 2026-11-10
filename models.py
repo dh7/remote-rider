@@ -80,6 +80,9 @@ class SessionTabUpsertRequest(BaseModel):
     machine_host: str | None = Field(default=None, min_length=1, max_length=255)
     activate: bool = False
     ephemeral: bool = False
+    # True: show an "Open in New Tab" card instead of an iframe (for pages that refuse
+    # to be framed). None keeps the tab's current setting on update.
+    new_tab: bool | None = None
 
 
 class SessionTabDeleteRequest(BaseModel):

@@ -546,6 +546,7 @@ function normalizeTab(raw) {
     path: raw.path ? String(raw.path) : undefined,
     protocol: raw.protocol ? String(raw.protocol) : undefined,
     ephemeral: raw.ephemeral === true ? true : undefined,
+    new_tab: raw.new_tab === true ? true : undefined,
   };
 }
 
@@ -928,7 +929,7 @@ function resolveTabEndpoint(server, tab) {
         port: match.port,
         path: tab.path || match.path || '/',
         protocol: tab.protocol || match.protocol || 'http',
-        embeddable: match.embeddable !== false,
+        embeddable: match.embeddable !== false && !tab.new_tab,
         source: 'live-service',
       };
     }
@@ -939,7 +940,7 @@ function resolveTabEndpoint(server, tab) {
       port: tab.port,
       path: tab.path || '/',
       protocol: tab.protocol || window.location.protocol.replace(':', ''),
-      embeddable: tab.service !== 'hub',
+      embeddable: tab.service !== 'hub' && !tab.new_tab,
       source: 'saved-fallback',
     };
   }
@@ -986,6 +987,10 @@ function ensureFrame(server, tab, endpoint) {
     const desc = document.createElement('p');
     desc.textContent = 'This page should be opened directly instead of inside the control iframe.';
 
+    const shown = document.createElement('code');
+    shown.className = 'frame-url';
+    shown.textContent = url;
+
     const actions = document.createElement('div');
     actions.className = 'frame-actions';
 
@@ -999,6 +1004,7 @@ function ensureFrame(server, tab, endpoint) {
     actions.appendChild(link);
     card.appendChild(heading);
     card.appendChild(desc);
+    card.appendChild(shown);
     card.appendChild(actions);
     notice.appendChild(card);
     framesEl.appendChild(notice);
@@ -1902,6 +1908,16 @@ function renderPanelEditorRows() {
     protocol.value = panel.protocol || 'http';
     protocol.onchange = () => { panel.protocol = protocol.value; };
 
+    const newTab = document.createElement('label');
+    newTab.className = 'panel-newtab';
+    newTab.title = 'Open this page in a browser tab instead of inside Remote Rider (for pages that refuse to be framed)';
+    const newTabBox = document.createElement('input');
+    newTabBox.type = 'checkbox';
+    newTabBox.checked = panel.new_tab === true;
+    newTabBox.onchange = () => { panel.new_tab = newTabBox.checked ? true : undefined; };
+    newTab.appendChild(newTabBox);
+    newTab.appendChild(document.createTextNode('New tab'));
+
     const del = document.createElement('button');
     del.className = 'icon-btn';
     del.textContent = 'X';
@@ -1915,6 +1931,7 @@ function renderPanelEditorRows() {
     row.appendChild(port);
     row.appendChild(path);
     row.appendChild(protocol);
+    row.appendChild(newTab);
     row.appendChild(del);
     panelList.appendChild(row);
   });

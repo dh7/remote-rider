@@ -243,6 +243,18 @@ body {
   margin: 0 0 1rem;
   line-height: 1.45;
 }
+.frame-url {
+  display: block;
+  margin: 0 0 1rem;
+  padding: 0.45rem 0.6rem;
+  background: #0c0f17;
+  border: 1px solid #31384d;
+  color: #b9c4e6;
+  font-size: 0.78rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .frame-actions {
   display: flex;
   gap: 0.6rem;
@@ -400,10 +412,20 @@ body {
 }
 .panel-row {
   display: grid;
-  grid-template-columns: 1.2fr 0.7fr 1.2fr 0.8fr auto;
+  grid-template-columns: 1.2fr 0.7fr 1.2fr 0.8fr auto auto;
   gap: 0.45rem;
   margin-bottom: 0.4rem;
 }
+.panel-row .panel-newtab {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: #c3cbe6;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.panel-row .panel-newtab input { padding: 0; }
 .panel-row input,
 .panel-row select {
   background: #161c2f;

@@ -959,6 +959,7 @@ def upsert_session_tab(session_name: str, payload: SessionTabUpsertRequest) -> d
             "path": payload.path,
             "protocol": payload.protocol,
             "ephemeral": payload.ephemeral,
+            "new_tab": payload.new_tab,
         }
     )
     if normalized_tab is None:
@@ -994,6 +995,8 @@ def upsert_session_tab(session_name: str, payload: SessionTabUpsertRequest) -> d
         else:
             match.update(normalized_tab)
             action = "updated"
+        if payload.new_tab is False:
+            match.pop("new_tab", None)
 
         if payload.activate:
             session["active_tab"] = str(match.get("id") or match.get("label"))

@@ -55,3 +55,11 @@ def test_save_without_priority_field_keeps_the_stored_one():
     normalized = [_normalize_control_session(r) for r in raw]
     _carry_over_priorities(raw, normalized, current)
     assert [s.get("priority") for s in normalized] == ["P0", None, "P0"]
+
+
+def test_tab_new_tab_flag_is_kept_and_none_service_dropped():
+    from storage import _normalize_session_tab
+    tab = _normalize_session_tab({"label": "Panel", "port": 8964, "path": "/#t=x", "service": None, "new_tab": True})
+    assert tab == {"id": "tab-panel", "label": "Panel", "port": 8964, "path": "/#t=x", "new_tab": True}
+    legacy = _normalize_session_tab({"label": "Panel", "port": 8964, "service": "None"})
+    assert "service" not in legacy and "new_tab" not in legacy

@@ -79,8 +79,8 @@ def _normalize_session_tab(payload: dict[str, Any]) -> dict[str, Any] | None:
         "id": tab_id_raw or f"tab-{_tab_slug(label)}",
         "label": label,
     }
-    service = str(payload.get("service", "")).strip()
-    if service:
+    service = str(payload.get("service") or "").strip()
+    if service and service != "None":  # "None" was saved by an older str(None) bug
         tab["service"] = service
     port = payload.get("port")
     if isinstance(port, int) and port > 0:
@@ -93,6 +93,8 @@ def _normalize_session_tab(payload: dict[str, Any]) -> dict[str, Any] | None:
         tab["protocol"] = _normalize_protocol(protocol)
     if payload.get("ephemeral") is True:
         tab["ephemeral"] = True
+    if payload.get("new_tab") is True:
+        tab["new_tab"] = True
     return tab
 
 
