@@ -2350,11 +2350,18 @@ function moveServerTo(dragName, targetName, after) {
   saveProfiles();
 }
 
+// Closing a tab stops the process behind it only when Remote Rider runs that service
+// (rr-files, rr-notes, sandboxes...). A custom tab points at someone else's server, and
+// builtin/hub/terminal tabs point at Remote Rider itself: closing those only removes the tab.
+function tabOwnsService(tab) {
+  return Boolean(tab.service) && !['builtin', 'hub', 'terminal', 'None'].includes(tab.service);
+}
+
 async function closeTab(server, tab, endpoint) {
   const host = endpoint?.host || sessionMachineHost(server) || server.ip || '127.0.0.1';
   const port = endpoint?.port || tab.port;
 
-  if (port) {
+  if (port && tabOwnsService(tab)) {
     try {
       await fetch('/services/stop/proxy', {
         method: 'POST',
@@ -2527,7 +2534,7 @@ async function renderTabs(server, refreshLive = true) {
       const closeBtn = document.createElement('span');
       closeBtn.className = 'tab-close-btn';
       closeBtn.textContent = '×';
-      closeBtn.title = `Close ${panel.label} and kill service`;
+      closeBtn.title = tabOwnsService(panel) ? `Close ${panel.label} and kill service` : `Close ${panel.label}`;
       closeBtn.onclick = async (e) => {
         e.stopPropagation();
         await closeTab(server, panel, endpoint);
