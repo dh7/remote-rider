@@ -1018,7 +1018,11 @@ button.row-main:focus-visible { outline: none; }
 .queue-row .qpill.done { background: #2f5a3a; color: #c8f0d0; }
 .queue-row .qpill.stuck { background: #ff5a5a; color: #2a0000; }
 .queue-row .qmain { min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
-.queue-row .qname { display: block; color: #c9d1ff; margin-bottom: 2px; }
+.queue-row .qhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 2px; min-width: 0; }
+.queue-row .qws { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--session-color, #8f97b9); overflow-wrap: anywhere; }
+.queue-row .qws.none { color: #6b7394; font-weight: 600; }
+.queue-row .qname { color: #c9d1ff; overflow-wrap: anywhere; }
+.queue-row .qopen { font-weight: 600; }
 .queue-row .qprompt { font-weight: 600; overflow-wrap: anywhere; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .queue-row .qwhere, .queue-row .qnote { color: #9a9ab8; font-size: 12px; overflow-wrap: anywhere; }
 .queue-row .qactions { display: flex; gap: 0.3rem; align-items: center; }

@@ -1726,7 +1726,11 @@ async function queueAction(task, method, suffix = '', body = undefined) {
 
 function buildQueueRow(task) {
   const node = latestEl('div', `queue-row ${task.status}`);
-  const color = workspaceColor(task.workspace);
+  // The Claude session working on (or that did) this task, when it's one we list.
+  const runId = task.taken_by && task.taken_by.session_id;
+  const run = runId && task.status !== 'waiting' ? latestRows.find((r) => r.session_id === runId) : null;
+  const wsName = task.workspace || (run && run.workspace) || null;
+  const color = workspaceColor(wsName);
   if (color) node.style.setProperty('--session-color', color);
 
   const st = latestEl('div', 'qstate');
@@ -1737,16 +1741,22 @@ function buildQueueRow(task) {
   st.append(latestEl('span', '', timeAgo(since * 1000)));
 
   const main = latestEl('div', 'qmain');
-  if (task.name) main.append(latestEl('strong', 'qname', task.name));
+  const wsSession = wsName && state.sessions.find((s) => s.name === wsName);
+  const wsLabel = wsSession ? displayName(wsSession) : (run && run.workspace_display) || wsName;
+  const head = latestEl('div', 'qhead');
+  head.append(latestEl('span', `qws${wsLabel ? '' : ' none'}`, wsLabel || (task.status === 'waiting' ? 'any workspace' : 'no workspace')));
+  if (task.name) head.append(latestEl('strong', 'qname', task.name));
+  main.append(head);
   const promptEl = latestEl('span', 'qprompt', task.prompt);
   promptEl.title = task.prompt;
   main.append(promptEl);
-  const ws = task.workspace && state.sessions.find((s) => s.name === task.workspace);
-  const where = [task.machine, ws ? displayName(ws) : task.workspace, task.folder].filter(Boolean).join(' › ');
+  const where = [task.machine, task.folder].filter(Boolean).join(' › ');
   let whereText = `for ${where || 'any'}`;
-  if (task.status === 'taken' && task.taken_by) {
-    const who = task.taken_by.name || (task.taken_by.session_id || '').slice(0, 8) || 'an agent';
-    whereText += ` · taken by ${who}${task.taken_by.pid ? '' : ' (no pid, 24h lease)'}`;
+  if (task.status !== 'waiting' && task.taken_by) {
+    const who = (run && (run.title || run.name)) || task.taken_by.name || (runId || '').slice(0, 8) || 'an agent';
+    const verb = task.status === 'taken' ? 'taken by' : 'by';
+    whereText += ` · ${verb} ${who}${run && run.tmux_window_name ? ` (${run.tmux_window_name})` : ''}`;
+    if (task.status === 'taken' && !task.taken_by.pid) whereText += ' (no pid, 24h lease)';
   }
   if (task.autonomous) whereText += ' · autonomous';
   main.append(latestEl('span', 'qwhere', whereText));
@@ -1771,6 +1781,18 @@ function buildQueueRow(task) {
     actions.append(del);
   } else if (task.priority) {
     actions.append(latestEl('span', `prio-select ${task.priority.toLowerCase()}`, task.priority));
+  }
+  if (run && canOpen(run)) {
+    const open = latestEl('button', 'qopen', 'Open');
+    open.type = 'button';
+    open.title = `Jump to ${run.workspace_display || run.workspace} › ${run.tmux_window_name || 'session'}`;
+    open.onclick = async () => {
+      markSeen(run.session_id);
+      saveSeen(latestRows);
+      closeLatest();
+      await openLatestRow(run);
+    };
+    actions.prepend(open);
   }
   node.append(st, main, actions);
   return node;
