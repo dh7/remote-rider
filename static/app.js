@@ -1782,6 +1782,13 @@ function buildQueueRow(task) {
   } else if (task.priority) {
     actions.append(latestEl('span', `prio-select ${task.priority.toLowerCase()}`, task.priority));
   }
+  if (task.status === 'done') {
+    const archive = latestEl('button', '', 'Archive');
+    archive.type = 'button';
+    archive.title = 'Hide this finished task';
+    archive.onclick = () => queueAction(task, 'POST', '/archive');
+    actions.append(archive);
+  }
   if (run && canOpen(run)) {
     const open = latestEl('button', 'qopen', 'Open');
     open.type = 'button';
@@ -1804,7 +1811,7 @@ function renderQueue() {
   const dayAgo = Date.now() / 1000 - 24 * 3600;
   const live = queueTasks.filter((t) => t.status === 'waiting' || t.status === 'taken');
   const recent = queueTasks
-    .filter((t) => t.status === 'done' && (t.done_at || 0) >= dayAgo)
+    .filter((t) => t.status === 'done' && !t.archived && (t.done_at || 0) >= dayAgo)
     .sort((a, b) => b.done_at - a.done_at);
   const items = [...live, ...recent].map((task) => {
     const li = document.createElement('li');

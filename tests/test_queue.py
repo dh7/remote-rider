@@ -342,3 +342,14 @@ def test_machine_defaults_to_the_caller_by_tailnet_ip(api):
     assert gx10.post("/queue/next", json={}).json()["task"]["id"] == task["id"]
     stranger = TestClient(main.app, client=("10.9.9.9", 5000))
     assert stranger.post("/queue", json={"prompt": "who am I"}).status_code == 400
+
+
+def test_archive_only_finished_tasks(api):
+    task = api.post("/queue", json={"prompt": "p", "machine": "gx10"}).json()["task"]
+    assert api.post(f"/queue/{task['id']}/archive").status_code == 409      # still waiting
+    api.post("/queue/next", json={"machine": "gx10", "pid": 1, "proc_start": "1"})
+    api.post(f"/queue/{task['id']}/done", json={"note": "ok"})
+    archived = api.post(f"/queue/{task['id']}/archive").json()["task"]
+    assert archived["archived"] is True and archived["status"] == "done"
+    assert api.post(f"/queue/{task['id']}/archive").status_code == 200      # idempotent
+    assert api.get("/queue").json()["tasks"][0]["archived"] is True        # still listed for agents

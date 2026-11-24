@@ -266,6 +266,7 @@ Queue (prompts waiting for an agent; any agent can read and write):
 - finish: POST {base}/queue/<id>/done {{note?}}   give up: POST {base}/queue/<id>/release {{note?}}
 - list: GET {base}/queue?status=waiting,taken&machine=<name>
 - edit/cancel a waiting task: PATCH / DELETE {base}/queue/<id>
+- archive a done task (hides it in the Sessions view): POST {base}/queue/<id>/archive
 - easiest from a shell: the rr-queue command in the remote-rider repo
   (rr-queue next | done "note" | release | add "prompt" | list); it reads .rr.
 - loop recipe for an agent: run `rr-queue next`; if it prints a task, do it, then
@@ -670,6 +671,13 @@ def queue_release(task_id: str, payload: QueueNoteRequest) -> dict[str, Any]:
 def queue_heartbeat(task_id: str) -> dict[str, Any]:
     _require_control_api()
     return {"task": _queue_call(_queue.heartbeat, task_id)}
+
+
+@app.post("/queue/{task_id}/archive")
+def queue_archive(task_id: str) -> dict[str, Any]:
+    """Hide a done task from the Sessions view."""
+    _require_control_api()
+    return {"task": _queue_call(_queue.archive, task_id)}
 
 
 @app.patch("/queue/{task_id}")

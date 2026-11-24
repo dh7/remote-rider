@@ -264,6 +264,20 @@ def cancel(task_id: str, path: Path | None = None) -> dict[str, Any]:
         return task
 
 
+def archive(task_id: str, path: Path | None = None) -> dict[str, Any]:
+    """Hide a finished task from the Sessions view (it stays in the file until pruned)."""
+    now = _now()
+    with _LOCK:
+        tasks = _load(path)
+        task = _find(tasks, task_id)
+        if task.get("status") not in ("done", "cancelled"):
+            raise QueueError(409, "only finished tasks can be archived")
+        if not task.get("archived"):
+            task.update(archived=True, archived_at=now, updated_at=now)
+            _save(path, tasks)
+        return task
+
+
 AliveFn = Callable[[str, list[tuple[int, str | None]]], "list[bool] | None"]
 
 
